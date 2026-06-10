@@ -1,0 +1,5 @@
+# Exclude from GitHub language detection
+*.html linguist-documentation=true
+*.yml linguist-other=true
+Dockerfile linguist-other=true
+# *.md linguist-documentation=true
