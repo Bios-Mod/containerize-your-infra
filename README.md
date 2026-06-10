@@ -10,24 +10,11 @@
 [![Compose](https://img.shields.io/badge/Compose-v2-2496ED?style=flat-square&logo=docker&logoColor=white)](environments/README.md)
 [![Ubuntu](https://img.shields.io/badge/Ubuntu-24.04%20LTS-orange?style=flat-square&logo=ubuntu&logoColor=white)](environments/prod/setup.md)
 
-The containerized companion to [build-your-infra](https://github.com/Bios-Mod/build-your-infra).
+A practical, step-by-step reference for deploying containerized infrastructure services using Docker. Each module covers a real service — DNS, file transfer, web server, reverse proxy — with the reasoning behind every decision explained inline.
 
-The same infrastructure — DNS, file transfer, web server, reverse proxy — re-implemented as Docker containers. Each module mirrors its bare-metal equivalent, making the two repos a direct side-by-side reference: same service, two different primitives.
+Built and tested on Ubuntu 24.04 LTS and macOS (Apple Silicon). Docker Engine on Linux (local VM + EC2 t4g.micro) and OrbStack on macOS. All configurations are architecture-agnostic unless noted.
 
-Built and tested on Ubuntu 24.04 LTS and macOS (Apple Silicon). Docker Engine on Linux (dev VM + EC2 t4g.micro) and Docker OrbStack on macOS. All configurations are architecture-agnostic unless noted.
-
----
-
-## Sister Repo
-
-This lab is the second phase of a multi-repo infrastructure portfolio:
-
-| Repo | Primitive | Status |
-|---|---|---|
-| [build-your-infra](https://github.com/Bios-Mod/build-your-infra) | Bare-metal · VM · AWS managed services | Phase 1 complete |
-| containerize-your-infra | Docker containers | In progress |
-
-Each module in this repo links back to its equivalent in build-your-infra. Following both repos in parallel shows the same infrastructure knowledge expressed at two different levels of abstraction.
+This lab deploys the same services as [build-your-infra](https://github.com/Bios-Mod/build-your-infra) — same stack, containerized. That repo covers the same infrastructure across three environments: local VM, VPS/EC2, and AWS managed services. The two repos are independent references that cover the same stack at different levels of abstraction: bare-metal and Docker.
 
 ---
 
@@ -36,14 +23,14 @@ Each module in this repo links back to its equivalent in build-your-infra. Follo
 | Component | dev | prod |
 |---|---|---|
 | Host | macOS (Apple Silicon) | Ubuntu 24.04 LTS — EC2 t4g.micro / local VM |
-| Runtime | Docker Desktop | Docker Engine |
+| Runtime | OrbStack | Docker Engine |
 | Architecture | ARM64 | ARM64 (Graviton2) / x86_64 |
 | Volumes | Bind mounts | Named volumes |
 | Restart policy | no | unless-stopped |
 
 Set up your environment before applying any module:
 
-- **dev** — Docker Desktop on macOS → [`environments/dev/setup.md`](environments/dev/setup.md)
+- **dev** — OrbStack on macOS → [`environments/dev/setup.md`](environments/dev/setup.md)
 - **prod** — Docker Engine on Ubuntu 24.04 LTS → [`environments/prod/setup.md`](environments/prod/setup.md)
 
 ---
@@ -65,22 +52,7 @@ Set up your environment before applying any module:
 | DNS | BIND9 | BIND9 | [`modules/dns/`](modules/dns/README.md) |
 | Reverse Proxy | Traefik | Nginx proxy block | [`modules/reverse-proxy/`](modules/reverse-proxy/README.md) |
 
----
-
-## Roadmap
-
-### Phase 1 — Core Modules (current)
-Deploy each module in order. Each module is independent — no hard prerequisites between services.
-
-### Phase 2 — Environments & Stack
-`environments/dev` and `environments/prod` override files applied at the close of Phase 1.
-`stacks/full-infra` — single compose that brings up the complete lab — documented as a future milestone.
-
-### Phase 3 — Automation
-GitHub Actions for image builds and compose validation.
-Coordinated with the automation phase of [build-your-infra](https://github.com/Bios-Mod/build-your-infra).
-
-**Automation soon**
+> **Automation phase — planned next:** Each module includes an `automation/` directory reserved for this. The upcoming phase will cover GitHub Actions for image builds and compose validation, coordinated with the automation phase of [build-your-infra](https://github.com/Bios-Mod/build-your-infra).
 
 ---
 
@@ -133,5 +105,3 @@ containerize-your-infra/
     └── full-infra
         └── README.md
 ```
-
----
