@@ -1,0 +1,26 @@
+# Deploy to:   modules/file-transfer/docker-compose.yml
+# Apply:       docker compose up -d
+# Module:      file-transfer
+# Requires:    configs/ssh/ host keys (Step 1), configs/keys/labuser_ed25519.pub (Step 2),
+#              configs/sftp/users.conf (Step 3), data/upload/ directory on host
+#
+# SFTP server — atmoz/sftp:alpine. Key-only auth, chrooted user, persisted host keys.
+# Parameters modified from baseline: cap_drop ALL + cap_add NET_BIND_SERVICE, port 2222
+
+services:
+  file-transfer:
+    image: atmoz/sftp:alpine
+    container_name: file-transfer
+    ports:
+      - "2222:22"
+    volumes:
+      - ./configs/ssh/ssh_host_ed25519_key:/etc/ssh/ssh_host_ed25519_key:ro
+      - ./configs/ssh/ssh_host_rsa_key:/etc/ssh/ssh_host_rsa_key:ro
+      - ./configs/keys/labuser_ed25519.pub:/home/labuser/.ssh/keys/labuser_ed25519.pub:ro
+      - ./configs/sftp/users.conf:/etc/sftp/users.conf:ro
+      - ./data/upload:/home/labuser/upload
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    restart: "no"

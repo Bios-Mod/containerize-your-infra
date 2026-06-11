@@ -1,6 +1,6 @@
 # Web Server — containerize-your-infra
 
-**Ubuntu 24.04 LTS · Docker Engine · Nginx official image**
+**Docker Engine · nginxinc/nginx-unprivileged:stable-alpine**
 
 ---
 
@@ -27,14 +27,68 @@ container hardening patterns that carry forward to every subsequent module.
 
 ## Environment
 
-| Parameter      | Value                                      |
-|----------------|--------------------------------------------|
-| Image          | `nginx:stable-alpine`                      |
-| Port           | 80 (HTTP)                                  |
-| TLS            | None — dev environment                     |
-| Content        | Static HTML (lab index page)               |
-| Config mount   | Bind mount (dev) — `configs/nginx/`        |
-| Hardening      | Non-root user, `cap_drop: ALL`, read-only filesystem |
+| Parameter    | Value                                                        |
+|--------------|--------------------------------------------------------------|
+| Image        | `nginxinc/nginx-unprivileged:stable-alpine`                  |
+| Port         | 8080 → 80 (HTTP)                                             |
+| TLS          | None — dev environment                                       |
+| Content      | Static HTML (lab index page)                                 |
+| Config mount | Bind mount (dev) — `configs/nginx/`                          |
+| Hardening    | Non-root user, `cap_drop: ALL`, read-only filesystem, tmpfs  |
+
+---
+
+## Before You Start — Image Exploration (optional)
+
+These commands inspect the image before any Compose deployment. Nothing here
+affects the module state — no files are created, no config is applied.
+
+**1. Pull and run the image as-is**
+
+```bash
+docker run --rm -p 8080:80 nginxinc/nginx-unprivileged:stable-alpine
+```
+
+Open `http://localhost:8080` in a browser. This is the default Nginx welcome
+page — the baseline you are about to replace. `--rm` removes the container
+automatically when you stop it with `Ctrl+C`.
+
+**2. Explore the image filesystem**
+
+```bash
+docker run --rm -it nginxinc/nginx-unprivileged:stable-alpine
+```
+
+You are now inside the container. Confirm the paths the Compose file will mount:
+
+```sh
+cat /etc/nginx/nginx.conf
+# → default config — note the pid, access_log, and user directives
+ls /usr/share/nginx/html/
+# → index.html  50x.html  (default welcome page)
+exit
+```
+
+**3. Verify that read-only breaks without tmpfs**
+
+```bash
+docker run --rm -p 8080:80 --read-only nginxinc/nginx-unprivileged:stable-alpine
+```
+
+The container exits immediately. Nginx cannot write `/var/run/nginx.pid`.
+Now add the two tmpfs mounts — the same ones declared in `docker-compose.yml`:
+
+```bash
+docker run --rm -p 8080:80 --read-only \
+  --tmpfs /var/cache/nginx \
+  --tmpfs /var/run \
+  --tmpfs /tmp \
+  nginxinc/nginx-unprivileged:stable-alpine
+```
+
+Nginx starts cleanly. `http://localhost:8080` responds. This confirms that
+`read_only: true` + `tmpfs` in the Compose file is not boilerplate — it is
+the minimum viable write surface for this process.
 
 ---
 
@@ -42,65 +96,65 @@ container hardening patterns that carry forward to every subsequent module.
 
 ### What was done
 
-The `docker-compose.yml` file defines the Nginx service using the official
-`nginx:stable-alpine` image. The configuration and HTML content are mounted
-from the module's `configs/` folder using bind mounts — the dev pattern for
-fast iteration without rebuilding the image.
+The `docker-compose.yml` file defines the Nginx service using
+`nginxinc/nginx-unprivileged:stable-alpine`. The configuration and HTML
+content are mounted from the module's `configs/` folder using bind mounts —
+the dev pattern for fast iteration without rebuilding the image.
 
-Container hardening is applied inline: the process runs as a non-root user,
-all Linux capabilities are dropped, and the container filesystem is set to
-read-only. A single `tmpfs` mount covers the paths Nginx requires to write
-at runtime (`/var/cache/nginx`, `/var/run`).
+Container hardening is applied inline: the image runs entirely as a non-root
+user, all Linux capabilities are dropped, and the container filesystem is set
+to read-only. Three `tmpfs` mounts cover the paths Nginx requires to write
+at runtime (`/var/cache/nginx`, `/var/run`, `/tmp`).
 
-```yaml
-# docker-compose.yml
+```bash
+docker compose up -d
 ```
 
 📄 [`docker-compose.yml`](docker-compose.yml) — `docker compose up -d` from this directory
 
 ### Why
 
-`nginx:stable-alpine` is the official image on Alpine Linux — smaller attack
-surface than the Debian variant, no package manager in the final layer, and
-the `stable` tag avoids breaking changes from mainline releases.
+`nginxinc/nginx-unprivileged` is the rootless variant of the official Nginx
+image, maintained by Nginx Inc. Unlike `nginx:stable-alpine`, its entrypoint
+does not require `CHOWN`, `SETUID`, or `SETGID` to prepare the runtime
+environment — every process starts and stays as the `nginx` user (UID 101).
+This makes `cap_drop: ALL` viable without adding capabilities back, which is
+the correct hardening posture for a static file server.
+
+The `stable-alpine` tag keeps the same surface reduction benefits: Alpine base,
+no package manager in the final layer, and stable release branch.
 
 Bind mounts replace the `COPY` step you would use in a Dockerfile. In a VM
 you would `cp` the config to `/etc/nginx/` — in a container the equivalent is
-mounting the file directly from the host at the path Nginx expects. The result
-is the same: Nginx reads the config from a known path. The difference is that
-changes to the source file on the host are reflected inside the container
-without a restart.
-
-`cap_drop: ALL` removes every Linux capability from the container process. An
-unprivileged Nginx serving on port 80 (remapped from host 8080 in dev) does
-not need any capability. This is the container equivalent of running a service
-as a dedicated low-privilege user in build-your-infra — except the isolation
-boundary here is the kernel capability set, not just the Unix UID.
+mounting the file directly from the host at the path Nginx expects. Changes
+to the source file on the host are reflected inside the container without a
+restart.
 
 `read_only: true` mounts the container root filesystem as read-only. Combined
-with `tmpfs` on the two paths Nginx writes to at runtime, this means any
-process that escapes the application layer cannot persist changes to the image
-filesystem.
+with `tmpfs` on the three paths Nginx writes to at runtime, any process that
+escapes the application layer cannot persist changes to the image filesystem.
 
 ### Verification
 
 ```bash
-# Start the service
-docker compose up -d
-
 # Container is running
 docker compose ps
-# → NAME          IMAGE                  STATUS
-# → web-server    nginx:stable-alpine    Up X seconds
+# → NAME          IMAGE                                        STATUS
+# → web-server    nginxinc/nginx-unprivileged:stable-alpine   Up X seconds
 
-# Confirm process is running as non-root
-docker compose exec web-server whoami
+# Confirm all processes run as non-root
+docker compose exec web-server ps aux
+# → PID   USER     COMMAND
+# → 1     nginx    nginx: master process ...
+# → X     nginx    nginx: worker process
+
+# exec defaults to root — pass --user to confirm the runtime user
+docker compose exec --user nginx web-server whoami
 # → nginx
 
 # HTTP response on mapped port
 curl -I http://localhost:8080
 # → HTTP/1.1 200 OK
-# → Server: nginx/1.x.x
 
 # No writable layer — write attempt must fail
 docker compose exec web-server touch /test
@@ -162,10 +216,6 @@ docker compose logs web-server
 The lab index HTML file is mounted into the container at
 `/usr/share/nginx/html/index.html`, replacing the default Nginx welcome page.
 The file is served directly from the bind mount — no image rebuild required.
-
-```bash
-mkdir -p configs/html
-```
 
 📄 [`configs/html/index.html`](configs/html/index.html) — mounted at `/usr/share/nginx/html/index.html`
 
@@ -236,3 +286,5 @@ docker inspect web-server --format '{{ .HostConfig.ReadonlyRootfs }}'
 ```
 
 ---
+
+**Next:** [`modules/file-transfer/file-transfer.md`](../file-transfer/file-transfer.md)
