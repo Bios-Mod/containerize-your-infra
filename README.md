@@ -74,7 +74,6 @@ containerize-your-infra/
 ├── environments
 │   ├── README.md
 │   ├── dev
-│   │   ├── docker-compose.override.yml
 │   │   └── setup.md
 │   └── prod
 │       ├── docker-compose.prod.yml
@@ -110,8 +109,7 @@ containerize-your-infra/
 │       ├── configs
 │       │   ├── html
 │       │   └── nginx
-│       ├── data
-│       │   └── upload
+│       ├── docker-compose.prod.yml
 │       ├── docker-compose.yml
 │       └── web-server.md
 └── stacks
