@@ -350,6 +350,68 @@ docker inspect file-transfer --format '{{ .HostConfig.CapAdd }}'
 # → [CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_NET_BIND_SERVICE CAP_SETGID CAP_SETUID CAP_SYS_CHROOT]
 ```
 
+## Production deployment
+
+In production the module runs from `docker-compose.prod.yml` instead of
+`docker-compose.yml`. The image, hardening, and SSH configuration are identical —
+what changes is the operational layer.
+
+| Parameter | dev | prod |
+|---|---|---|
+| Host keys mount | Bind mount | Bind mount (no `:ro` — entrypoint enforces chmod) |
+| Client public key mount | Bind mount | Bind mount `:ro` |
+| Upload data | Bind mount | Named volume |
+| Restart policy | `"no"` (default) | `unless-stopped` |
+| Healthcheck | None | TCP probe on port 22 |
+
+Host keys cannot be mounted `:ro` — the entrypoint enforces `chmod` on them at
+startup and OpenSSH rejects keys with wrong permissions. Upload data moves to a
+named volume in prod: the data directory must survive container replacement
+independently of the host path.
+
+> **EC2 / fresh clone:** Private host keys and client keys are not tracked in the
+> repository. If deploying on a new host after cloning, run the key generation
+> commands from Step 1 and Step 2 before proceeding.
+
+> **ARM64 host (EC2 t4g.micro):** `atmoz/sftp` has no native ARM64 build.
+> Install QEMU emulation before the first deploy:
+>
+> ```bash
+> docker run --privileged --rm tonistiigi/binfmt --install all
+> ```
+
+```bash
+docker compose -f docker-compose.prod.yml up -d
+```
+
+📄 [`docker-compose.prod.yml`](docker-compose.prod.yml)
+
+### Verification
+
+```bash
+docker compose -f docker-compose.prod.yml ps
+# → NAME            STATUS
+# → file-transfer   Up X seconds (healthy)
+
+# Confirm healthcheck is passing — wait ~15s after start_period
+docker inspect file-transfer --format '{{ .State.Health.Status }}'
+# → healthy
+
+# Confirm upload volume is mounted
+docker inspect file-transfer --format '{{ .Mounts }}'
+# → [{volume file-transfer-data /var/lib/docker/volumes/...}]
+
+# Confirm restart policy survives daemon restart
+sudo systemctl restart docker
+sleep 5
+docker ps
+# → file-transfer   Up X seconds
+
+# Confirm SFTP still reachable after daemon restart
+sftp -P 2222 -i configs/keys/labuser_ed25519 -oStrictHostKeyChecking=no labuser@localhost
+# → Connected to localhost.
+```
+
 ---
 
 **Next:** [`modules/dns/dns.md`](../dns/dns.md)
