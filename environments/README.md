@@ -1,32 +1,25 @@
 # Environments
 
-This lab runs across two environments. Both deploy the same modules —
-`dev` for local iteration, `prod` for deployment on a real server.
+This directory contains environment-specific Compose configurations for the lab.
+
+Each module ships its own `docker-compose.yml` for development and a
+`docker-compose.prod.yml` for production. The files in this directory
+aggregate all modules into a single deployable unit per environment.
 
 ---
 
-## Overview
+## Environment matrix
 
-| Environment | Infrastructure | When to use |
+| Parameter | dev | prod |
 |---|---|---|
-| `dev` | macOS · OrbStack | Local iteration — develop and test each module before prod deployment |
-| `prod` | Ubuntu 24.04 LTS · EC2 t4g.micro / local VM | Server deployment — same modules, production-grade configuration |
-
-`dev` and `prod` run the same services. The difference is operational:
-bind mounts vs named volumes, relaxed vs enforced restart policies,
-debug ports vs minimal exposure.
-
-`prod` setup and override files are applied at the close of Phase 1,
-once all modules are running in `dev`.
+| Config mounts | Bind mounts | Bind mounts (read-only) |
+| Data volumes | Bind mounts | Named volumes |
+| Restart policy | `"no"` | `unless-stopped` |
+| Healthchecks | None | Defined per service |
+| Debug ports | Exposed | Not exposed |
+| TLS | Self-signed | Let's Encrypt (Traefik ACME) |
 
 ---
 
-## Setup guides
-
-| Environment | Guide |
-|---|---|
-| `dev` | [`dev/setup.md`](dev/setup.md) |
-| `prod` | [`prod/setup.md`](prod/setup.md) |
-
-Complete the `dev` setup guide before applying any module.
-`prod/setup.md` is a prerequisite for production deployments — applied after all modules are running in `dev`.
+- **dev** → [`dev/setup.md`](dev/setup.md)
+- **prod** → [`prod/setup.md`](prod/setup.md) · [`prod/docker-compose.prod.yml`](prod/docker-compose.prod.yml)

@@ -287,4 +287,49 @@ docker inspect web-server --format '{{ .HostConfig.ReadonlyRootfs }}'
 
 ---
 
+## Production deployment
+
+In production the module runs from `docker-compose.prod.yml` instead of
+`docker-compose.yml`. The image, hardening, and Nginx config are identical —
+what changes is the operational layer.
+
+| Parameter | dev | prod |
+|---|---|---|
+| Config mount (`nginx.conf`, `index.html`) | Bind mount | Bind mount `:ro` |
+| Restart policy | `"no"` (default) | `unless-stopped` |
+| Healthcheck | None | `wget` on port 8080 |
+
+Config files are always mounted from the repository — read-only in prod to
+prevent any runtime modification. There are no persistent data volumes for
+this module: Nginx serves static content with no writable state.
+
+```bash
+docker compose -f docker-compose.prod.yml up -d
+```
+
+📄 [`docker-compose.prod.yml`](docker-compose.prod.yml)
+
+### Verification
+
+```bash
+docker compose -f docker-compose.prod.yml ps
+# → NAME         STATUS
+# → web-server   Up X seconds (healthy)
+
+# Confirm healthcheck is passing — wait ~10s after start_period
+docker inspect web-server --format '{{ .State.Health.Status }}'
+# → healthy
+
+# Confirm restart policy survives daemon restart
+sudo systemctl restart docker
+sleep 5
+docker ps
+# → web-server   Up X seconds
+
+curl -I http://localhost:8080
+# → HTTP/1.1 200 OK
+```
+
+---
+
 **Next:** [`modules/file-transfer/file-transfer.md`](../file-transfer/file-transfer.md)

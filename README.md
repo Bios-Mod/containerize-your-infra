@@ -39,7 +39,10 @@ Set up your environment before applying any module:
 
 1. Choose your environment and follow its setup guide
 2. Apply modules in order — each module is independent and self-contained
-3. Phase 2 (environments override files) is applied after all modules are deployed
+
+> **Production deployment:** each module includes a `docker-compose.prod.yml` for 
+> standalone prod deployment. The full stack is orchestrated from 
+> [`stacks/full-infra/`](stacks/full-infra/README.md).
 
 ---
 
@@ -61,46 +64,56 @@ Set up your environment before applying any module:
 ```bash
 containerize-your-infra/
 ├── AGENTS.md
+├── CONTRIBUTING.md
+├── LICENSE
+├── README.md
 ├── banner.png
 ├── context
-│   ├── current-iteration.md
-│   └── decisions-log.md
-├── CONTRIBUTING.md
+│   ├── current-iteration.md
+│   └── decisions-log.md
 ├── environments
-│   ├── dev
-│   │   ├── docker-compose.override.yml
-│   │   └── setup.md
-│   ├── prod
-│   │   ├── docker-compose.prod.yml
-│   │   └── setup.md
-│   └── README.md
-├── LICENSE
+│   ├── README.md
+│   ├── dev
+│   │   ├── docker-compose.override.yml
+│   │   └── setup.md
+│   └── prod
+│       ├── docker-compose.prod.yml
+│       └── setup.md
 ├── modules
-│   ├── dns
-│   │   ├── automation
-│   │   ├── configs
-│   │   ├── dns.md
-│   │   ├── docker-compose.yml
-│   │   └── README.md
-│   ├── file-transfer
-│   │   ├── automation
-│   │   ├── configs
-│   │   ├── docker-compose.yml
-│   │   ├── file-transfer.md
-│   │   └── README.md
-│   ├── reverse-proxy
-│   │   ├── automation
-│   │   ├── configs
-│   │   ├── docker-compose.yml
-│   │   ├── README.md
-│   │   └── reverse-proxy.md
-│   └── web-server
-│       ├── automation
-│       ├── configs
-│       ├── docker-compose.yml
-│       ├── README.md
-│       └── web-server.md
-├── README.md
+│   ├── dns
+│   │   ├── README.md
+│   │   ├── automation
+│   │   ├── configs
+│   │   │   └── bind
+│   │   ├── dns.md
+│   │   └── docker-compose.yml
+│   ├── file-transfer
+│   │   ├── README.md
+│   │   ├── automation
+│   │   ├── configs
+│   │   │   ├── keys
+│   │   │   └── ssh
+│   │   ├── data
+│   │   │   └── upload
+│   │   ├── docker-compose.yml
+│   │   └── file-transfer.md
+│   ├── reverse-proxy
+│   │   ├── README.md
+│   │   ├── automation
+│   │   ├── configs
+│   │   │   └── traefik
+│   │   ├── docker-compose.yml
+│   │   └── reverse-proxy.md
+│   └── web-server
+│       ├── README.md
+│       ├── automation
+│       ├── configs
+│       │   ├── html
+│       │   └── nginx
+│       ├── data
+│       │   └── upload
+│       ├── docker-compose.yml
+│       └── web-server.md
 └── stacks
     └── full-infra
         └── README.md

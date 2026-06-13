@@ -1,0 +1,33 @@
+# Deploy to:   Ubuntu 24.04 LTS — EC2 t4g.micro or local VM
+# Apply:       docker compose -f docker-compose.prod.yml up -d
+# Module:      web-server
+# Requires:    none
+#
+# Production compose for the web-server module.
+# Parameters modified from baseline: restart, read-only config mounts, healthcheck
+
+services:
+  web-server:
+    image: nginxinc/nginx-unprivileged:stable-alpine
+    container_name: web-server
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./configs/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./configs/html/index.html:/usr/share/nginx/html/index.html:ro
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
