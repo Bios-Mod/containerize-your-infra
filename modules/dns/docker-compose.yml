@@ -1,0 +1,38 @@
+# Deploy to:   modules/dns/docker-compose.yml
+# Apply:       docker compose up -d
+# Module:      dns
+# Requires:    configs/bind/named.conf, named.conf.options, named.conf.local, db.lab.local, db.172.20.0
+#
+# BIND9 DNS service — recursive resolver and authoritative zone for lab.local.
+# Parameters modified from baseline: fixed IP, lab-net network, port 53 TCP/UDP
+#
+# Purpose:     Run BIND9 as a closed resolver for the lab.
+# Platform:    Linux / ARM64 / x86_64
+
+services:
+  dns:
+    image: internetsystemsconsortium/bind9:9.20
+    platform: linux/amd64
+    container_name: dns
+    restart: unless-stopped
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+    volumes:
+      - ./configs/bind/named.conf:/etc/bind/named.conf:ro
+      - ./configs/bind/named.conf.options:/etc/bind/named.conf.options:ro
+      - ./configs/bind/named.conf.local:/etc/bind/named.conf.local:ro
+      - ./configs/bind/db.lab.local:/etc/bind/db.lab.local:ro
+      - ./configs/bind/db.172.20.0:/etc/bind/db.172.20.0:ro
+    networks:
+      lab-net:
+        ipv4_address: 172.20.0.10
+    command: ["-g"]
+
+networks:
+  lab-net:
+    name: lab-net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24

@@ -1,0 +1,54 @@
+# Deploy to:   modules/reverse-proxy/
+# Apply:       docker compose up -d
+# Module:      reverse-proxy
+# Requires:    configs/traefik/traefik.yml, configs/traefik/dynamic.yml
+#
+# Traefik v3.7 reverse proxy with BasicAuth-protected dashboard and Nginx backend.
+# Parameters modified from baseline: none
+#
+# Note: TLS certs (Step 4) require configs/traefik/certs/ to exist before up.
+
+services:
+  traefik:
+    image: traefik:v3.7
+    container_name: traefik
+    restart: "no"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./configs/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./configs/traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - ./configs/traefik/certs:/etc/traefik/certs:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.rule=Host(`traefik.localhost`)"
+      - "traefik.http.routers.dashboard.entrypoints=websecure"
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.routers.dashboard.tls=true"
+      - "traefik.http.routers.dashboard.middlewares=auth-dashboard@file"
+    networks:
+      - proxy-net
+
+  web-server:
+    image: nginxinc/nginx-unprivileged:stable-alpine
+    container_name: web-server
+    restart: "no"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.web-server.rule=Host(`web.localhost`)"
+      - "traefik.http.routers.web-server.entrypoints=websecure"
+      - "traefik.http.routers.web-server.tls=true"
+      - "traefik.http.services.web-server.loadbalancer.server.port=8080"
+    networks:
+      - proxy-net
+
+networks:
+  proxy-net:
+    driver: bridge
+    name: proxy-net
+    ipam:
+      config:
+        - subnet: 172.21.0.0/24

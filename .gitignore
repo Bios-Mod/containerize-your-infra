@@ -6,3 +6,12 @@
 # Agent context — private working files
 AGENTS.md
 context/
+# SSH host keys — private keys must never be committed
+modules/file-transfer/configs/ssh/ssh_host_ed25519_key
+modules/file-transfer/configs/ssh/ssh_host_rsa_key
+
+# Client key pairs — private key must never be committed
+modules/file-transfer/configs/keys/labuser_ed25519
+
+# Runtime data — not tracked, recreated on deploy
+modules/file-transfer/data/

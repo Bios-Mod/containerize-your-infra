@@ -1,0 +1,36 @@
+# Deploy to:   modules/reverse-proxy/configs/traefik/dynamic.yml
+# Apply:       docker compose up -d (mounted at /etc/traefik/dynamic.yml, hot-reloaded)
+# Module:      reverse-proxy
+# Requires:    configs/traefik/certs/lab.crt and lab.key (generated in Step 4)
+#
+# Traefik dynamic configuration — reloaded without container restart.
+# Parameters modified from baseline: BasicAuth middleware, TLS certificate, dashboard router.
+
+http:
+  routers:
+    dashboard:
+      rule: "Host(`traefik.localhost`)"
+      entryPoints:
+        - websecure
+      service: api@internal
+      middlewares:
+        - auth-dashboard
+      tls: {}
+
+  middlewares:
+    auth-dashboard:
+      basicAuth:
+        # Generate with: htpasswd -nB admin
+        # Replace the value below with your own hash — never commit plaintext passwords
+        users:
+          - admin:$2y$05$5uS0ZtTjyCN8fBMsxrfFi.ESElJ9c.9eiz6YULFlPzrTUg5adJ7Bi
+
+tls:
+  certificates:
+    - certFile: /etc/traefik/certs/lab.crt
+      keyFile: /etc/traefik/certs/lab.key
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /etc/traefik/certs/lab.crt
+        keyFile: /etc/traefik/certs/lab.key

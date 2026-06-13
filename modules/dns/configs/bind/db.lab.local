@@ -1,0 +1,20 @@
+; Deploy to:   configs/bind/db.lab.local
+; Apply:       docker compose up -d (bind mount → /etc/bind/db.lab.local)
+; Module:      dns
+; Requires:    none
+;
+; Authoritative forward zone for lab.local.
+; Parameters modified from baseline: lab hosts and fixed IPs
+
+$TTL 86400
+@   IN  SOA dns.lab.local. admin.lab.local. (
+        2026061201 ; Serial
+        3600       ; Refresh
+        1800       ; Retry
+        604800     ; Expire
+        86400 )    ; Negative cache TTL
+
+    IN  NS  dns.lab.local.
+
+dns     IN  A   172.20.0.10
+web     IN  A   172.20.0.20

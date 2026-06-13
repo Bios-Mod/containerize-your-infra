@@ -1,0 +1,28 @@
+# Deploy to:   configs/bind/named.conf.options
+# Apply:       docker compose up -d (bind mount → /etc/bind/named.conf.options)
+# Module:      dns
+# Requires:    none
+#
+# Recursive resolver settings with Google DNS forwarders.
+# Parameters modified from baseline: recursion, forwarders, forward only, version hidden
+
+options {
+    directory "/var/cache/bind";
+    version "not available";
+
+    recursion yes;
+    allow-recursion { any; };
+    allow-query { any; };
+    allow-query-cache { any; };
+
+    forwarders {
+        8.8.8.8;
+        8.8.4.4;
+    };
+    forward only;
+
+    listen-on port 53 { any; };
+    listen-on-v6 port 53 { any; };
+
+    auth-nxdomain no;
+};

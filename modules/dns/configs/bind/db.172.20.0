@@ -1,0 +1,20 @@
+; Deploy to:   configs/bind/db.172.20.0
+; Apply:       docker compose up -d (bind mount → /etc/bind/db.172.20.0)
+; Module:      dns
+; Requires:    none
+;
+; Reverse zone for 172.20.0.0/24 — PTR records for lab hosts.
+; Parameters modified from baseline: PTR records for dns and web
+
+$TTL 86400
+@   IN  SOA dns.lab.local. admin.lab.local. (
+        2026061201 ; Serial
+        3600       ; Refresh
+        1800       ; Retry
+        604800     ; Expire
+        86400 )    ; Negative cache TTL
+
+    IN  NS  dns.lab.local.
+
+10  IN  PTR dns.lab.local.
+20  IN  PTR web.lab.local.

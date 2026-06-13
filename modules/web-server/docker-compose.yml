@@ -1,4 +1,4 @@
-# Deploy to:   any host running Docker Engine (dev — OrbStack / prod — EC2 or local VM)
+# Deploy to:   modules/web-server/docker-compose.yml
 # Apply:       docker compose up -d
 # Module:      web-server
 # Requires:    none

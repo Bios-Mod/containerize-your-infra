@@ -1,0 +1,17 @@
+# Deploy to:   configs/bind/named.conf.local
+# Apply:       docker compose up -d (bind mount → /etc/bind/named.conf.local)
+# Module:      dns
+# Requires:    db.lab.local, db.172.20.0
+#
+# Authoritative forward and reverse zones for the lab.
+# Parameters modified from baseline: adds lab.local and 20.172.in-addr.arpa zones
+
+zone "lab.local" {
+    type master;
+    file "/etc/bind/db.lab.local";
+};
+
+zone "0.20.172.in-addr.arpa" {
+    type master;
+    file "/etc/bind/db.172.20.0";
+};

@@ -1,11 +1,12 @@
 # DNS
 
-BIND9 containerized — authoritative DNS server for internal resolution.
-
-**build-your-infra equivalent:** [modules/dns](https://github.com/Bios-Mod/build-your-infra/tree/main/modules/dns)
+Name resolution for the lab — internal authority for `lab.local` and recursive resolution for external domains.
 
 ## Implementation
 
 | Environment | Technology | Doc |
 |---|---|---|
-| dev / prod | BIND9 | [dns.md](dns.md) |
+| dev | BIND9 in Docker — recursive resolver + authoritative zone | [dns.md](dns.md) |
+| prod | BIND9 in Docker — recursive resolver + authoritative zone | [dns.md](dns.md) |
+
+**Infrastructure & AWS native equivalent:** [`modules/dns`](https://github.com/Bios-Mod/build-your-infra/tree/main/modules/dns)

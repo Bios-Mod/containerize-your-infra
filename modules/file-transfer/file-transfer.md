@@ -1,6 +1,6 @@
 # File Transfer — containerize-your-infra
 
-**Docker Engine · atmoz/sftp:alpine**
+**Docker Engine · atmoz/sftp:alpine (platform: linux/amd64)**
 
 ---
 
@@ -47,13 +47,14 @@ affects the module state.
 **1. Pull and run with a test user**
 
 ```bash
-docker run --rm -p 2222:22 atmoz/sftp:alpine testuser:testpass:::upload
+docker run --rm --platform linux/amd64 -p 2222:22 atmoz/sftp:alpine testuser:testpass:::upload
 ```
 
 From another terminal, attempt a connection:
 
 ```bash
 sftp -P 2222 testuser@localhost
+# → password testpass
 # → Connected to localhost.
 # → sftp>
 ```
@@ -88,6 +89,8 @@ a MITM warning on every reconnect.
 
 ```bash
 mkdir -p configs/ssh
+# Check te destination folder before continue
+
 ssh-keygen -t ed25519 -f configs/ssh/ssh_host_ed25519_key -N ""
 ssh-keygen -t rsa -b 4096 -f configs/ssh/ssh_host_rsa_key -N ""
 ```
@@ -151,10 +154,8 @@ key as read-only (`:ro`) at that path is the image's supported mechanism for
 SSH key auth — no manual `authorized_keys` file management required.
 
 Disabling password auth entirely removes the largest brute-force attack surface
-on an SSH-exposed port. In build-your-infra this was enforced via
-`PasswordAuthentication no` in `sshd_config`. Here the equivalent is omitting
-the password field in `users.conf` — an empty password field signals the image
-to disable it for that user.
+on an SSH-exposed port. An empty password field in `SFTP_USERS` signals the
+image to disable it for that user.
 
 ### Verification
 
@@ -173,30 +174,41 @@ cat configs/keys/labuser_ed25519.pub
 
 ### What was done
 
-User definitions are written to `configs/sftp/users.conf` and mounted into the
-container at `/etc/sftp/users.conf`. This file-based approach keeps user config
-explicit and version-controlled, avoiding inline command arguments.
+The SFTP user is defined via the `SFTP_USERS` environment variable in
+`docker-compose.yml`. No external config file is required.
 
-📄 [`configs/sftp/users.conf`](configs/sftp/users.conf) — mounted at `/etc/sftp/users.conf:ro`
+```yaml
+environment:
+  - SFTP_USERS=labuser::1001::upload
+```
+
+The format is `user:password:uid:gid:directory`. An empty password field
+disables password authentication — SSH key auth only. UID 1001 matches the
+key pair generated in Step 2 so file ownership on the host bind mount is
+consistent.
 
 ### Why
 
-`atmoz/sftp` supports three ways to define users: CLI arguments, the
-`SFTP_USERS` environment variable, or a `users.conf` file. The file approach
-is preferred here for the same reason a config file is preferred over inline
-arguments in any service: it is auditable, diff-able, and maps cleanly to the
-bind mount pattern used across this repo.
+`SFTP_USERS` keeps the user definition co-located with the rest of the service
+config in `docker-compose.yml`. A `users.conf` file is the alternative for
+deployments with many users — for a single lab user it adds a file and a mount
+with no benefit.
 
-The syntax `user::uid::dir` defines the upload subdirectory directly. An empty
+The format `user::uid::dir` defines the upload subdirectory directly. An empty
 password field disables password authentication for that user — only key auth
 works. UID 1001 matches the key pair generated in Step 2 so that file
-ownership on the host volume is consistent.
+ownership on the host bind mount is consistent.
 
 ### Verification
 
 ```bash
-cat configs/sftp/users.conf
-# → labuser::1001::upload
+# Confirm the variable is set inside the running container
+docker compose exec file-transfer env | grep SFTP_USERS
+# → SFTP_USERS=labuser::1001::upload
+
+# Confirm the user exists inside the container
+docker compose exec file-transfer id labuser
+# → uid=1001(labuser) gid=100(users) groups=100(users)
 ```
 
 ---
@@ -217,25 +229,34 @@ docker compose up -d
 
 ### Why
 
-`atmoz/sftp:alpine` is chosen over `:debian` for the same reason as the
-web-server module — smaller attack surface, faster pulls. Alpine carries a
-newer OpenSSH than the Debian variant.
+`atmoz/sftp:alpine` over `:debian` — smaller attack surface, newer OpenSSH.
 
-Port 2222 on the host avoids conflict with the host's own sshd on port 22.
-This is a dev-only mapping — in prod the port assignment follows the
-environment overlay. The container's sshd always listens on 22 internally;
-only the host-side mapping changes.
+`platform: linux/amd64` is required because the image has no native ARM64
+build. Docker runs it under emulation on both OrbStack and EC2 t4g.micro —
+acceptable overhead for a lab service.
 
-`cap_drop: ALL` with `cap_add: [NET_BIND_SERVICE]` is the correct hardening
-posture for this image. Unlike the web-server module where `cap_drop: ALL`
-alone was sufficient, OpenSSH requires `NET_BIND_SERVICE` to bind port 22
-inside the container. Adding back only this one capability keeps the surface
-minimal while remaining functional.
+The entrypoint runs as root to create the system user, set chroot permissions,
+and prepare `authorized_keys`, then sshd drops privileges per connection — same
+pattern as OpenSSH on bare metal. This requires more capabilities than a
+purely non-root image:
 
-`read_only: true` cannot be applied to this image without significant tmpfs
-mapping that varies across OpenSSH versions — it is documented as out of scope
-for this module. The hardening posture is: non-root data ownership, cap_drop,
-no password auth.
+| Capability | Required for |
+|---|---|
+| `NET_BIND_SERVICE` | sshd binding port 22 |
+| `CHOWN` / `SETUID` / `SETGID` | user creation and privilege drop |
+| `DAC_OVERRIDE` | writing `/etc/shadow` |
+| `FOWNER` | `chmod 600` on `authorized_keys` |
+| `SYS_CHROOT` | applying the chroot jail per session |
+
+This is not `privileged: true` — only the six capabilities this process
+legitimately needs. Everything else is dropped.
+
+Host keys are not mounted `:ro` — the entrypoint enforces `chmod` on them at
+startup and OpenSSH rejects keys with wrong permissions.
+
+`read_only: true` is out of scope — the entrypoint writes to `/etc/passwd`,
+`/etc/shadow`, and `/etc/group` during startup. Hardening posture: scoped
+capabilities, key-only auth, `:ro` on all config mounts.
 
 ### Verification
 
@@ -251,13 +272,13 @@ sftp -P 2222 -i configs/keys/labuser_ed25519 -oStrictHostKeyChecking=no labuser@
 # → sftp>
 
 # Upload a test file
-sftp> put /etc/hostname upload/
-# → Uploading /etc/hostname to /upload/hostname
-# → /etc/hostname    100%   ...
+sftp> put /etc/hosts upload
+# → Uploading /etc/hosts to /upload/hosts
+# → /etc/hosts    100%   ...
 
 # Confirm the file landed on the host bind mount
 ls -la data/upload/
-# → hostname
+# → hosts
 
 # Confirm no password auth
 ssh -p 2222 -o PasswordAuthentication=yes -o PubkeyAuthentication=no labuser@localhost
@@ -288,6 +309,12 @@ persistence contract is working.
 
 ### Verification
 
+> **What this verifies:** `ssh-keyscan` retrieves the public host key that the
+> server announces on port 2222. `ssh-keygen -lf -` converts it to a short
+> fingerprint. Running this command before and after a `down / up` cycle
+> confirms that the mounted host keys survived — if the fingerprint changes,
+> the container regenerated new keys and the mount is not working.
+
 ```bash
 # Record the current host key fingerprint
 ssh-keyscan -p 2222 localhost 2>/dev/null | ssh-keygen -lf -
@@ -302,6 +329,14 @@ docker compose up -d
 # Fingerprint must be identical
 ssh-keyscan -p 2222 localhost 2>/dev/null | ssh-keygen -lf -
 # → <same fingerprint as before>
+```
+
+> **In normal use**, if host keys are not persisted and the container
+> regenerates them, any client with a cached fingerprint in `~/.ssh/known_hosts`
+> will receive a REMOTE HOST IDENTIFICATION HAS CHANGED warning on the next
+> connection — the same MITM alert SSH uses for genuine key changes.
+
+```bash
 
 # Uploaded files survived the cycle
 ls data/upload/
@@ -312,7 +347,7 @@ docker inspect file-transfer --format '{{ .HostConfig.CapDrop }}'
 # → [ALL]
 
 docker inspect file-transfer --format '{{ .HostConfig.CapAdd }}'
-# → [NET_BIND_SERVICE]
+# → [CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_NET_BIND_SERVICE CAP_SETGID CAP_SETUID CAP_SYS_CHROOT]
 ```
 
 ---

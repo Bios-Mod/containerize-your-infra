@@ -1,0 +1,41 @@
+# Deploy to:   modules/reverse-proxy/configs/traefik/traefik.yml
+# Apply:       docker compose up -d (mounted at /etc/traefik/traefik.yml)
+# Module:      reverse-proxy
+# Requires:    none
+#
+# Traefik static configuration — loaded once at startup.
+# Parameters modified from baseline: entrypoints, dashboard, Docker provider, TLS redirect.
+
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+log:
+  level: "INFO"
+
+api:
+  dashboard: true
+  insecure: false 
+
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    address: ":443"
+  dashboard:
+    address: ":8080" 
+
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false
+    network: proxy-net
+  file:
+    filename: /etc/traefik/dynamic.yml
+    watch: true
