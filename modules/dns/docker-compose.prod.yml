@@ -8,26 +8,32 @@
 
 services:
   dns:
-    image: internetsystemsconsortium/bind9:9.20
-    platform: linux/amd64
+    image: ubuntu/bind9:latest
     container_name: dns
+    environment:
+      - BIND9_USER=root
+      - TZ=Etc/UTC
     restart: unless-stopped
     ports:
       - "53:53/tcp"
       - "53:53/udp"
     volumes:
-      - ./configs/bind:/etc/bind:ro
+      - ./configs/bind/named.conf:/etc/bind/named.conf:ro
+      - ./configs/bind/named.conf.options:/etc/bind/named.conf.options:ro
+      - ./configs/bind/named.conf.local:/etc/bind/named.conf.local:ro
+      - ./configs/bind/db.lab.local:/etc/bind/db.lab.local:ro
+      - ./configs/bind/db.172.20.0:/etc/bind/db.172.20.0:ro
       - dns-cache:/var/cache/bind
     networks:
       lab-net:
         ipv4_address: 172.20.0.10
     command: ["-g"]
     healthcheck:
-      test: ["CMD", "dig", "@127.0.0.1", "lab.local", "SOA", "+short", "+time=2"]
+      test: ["CMD-SHELL", "pidof named || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 15s
+      start_period: 5s
 
 networks:
   lab-net:

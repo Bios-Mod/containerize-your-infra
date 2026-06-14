@@ -9,8 +9,7 @@
 services:
   file-transfer:
     container_name: file-transfer
-    image: atmoz/sftp:alpine
-    platform: linux/amd64
+    image: lscr.io/linuxserver/openssh-server:latest
     ports:
       - "2222:22"
     environment:
@@ -35,7 +34,7 @@ services:
       - SYS_CHROOT
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 22 || exit 1"]
+      test: ["CMD-SHELL", "pidof sshd || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3

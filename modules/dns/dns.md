@@ -349,11 +349,14 @@ sleep 5
 docker ps
 # → dns   Up X seconds
 
-# Confirm both internal and external resolution work after daemon restart
-docker compose -f docker-compose.prod.yml exec dns dig @127.0.0.1 dns.lab.local +short
+# Run the network resolution test directly from the EC2 host terminal (outside the container) to verify the authoritative response over the published port:
+dig @127.0.0.1 dns.lab.local +short
 # → 172.20.0.10
 
-docker compose -f docker-compose.prod.yml exec dns dig @127.0.0.1 google.com +short
+dig @127.0.0.1 google.com +short
+# → an external IP address
+# → an external IP address
+# → an external IP address
 # → an external IP address
 ```
 
