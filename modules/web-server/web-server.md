@@ -312,6 +312,10 @@ docker compose -f docker-compose.prod.yml up -d
 ### Verification
 
 ```bash
+# -v removes named volumes — correct for lab testing, destructive with real data
+docker compose -f docker-compose.prod.yml down -v
+docker compose -f docker-compose.prod.yml up -d
+
 docker compose -f docker-compose.prod.yml ps
 # → NAME         STATUS
 # → web-server   Up X seconds (healthy)

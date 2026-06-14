@@ -372,13 +372,7 @@ independently of the host path.
 > **EC2 / fresh clone:** Private host keys and client keys are not tracked in the
 > repository. If deploying on a new host after cloning, run the key generation
 > commands from Step 1 and Step 2 before proceeding.
-
-> **ARM64 host (EC2 t4g.micro):** `atmoz/sftp` has no native ARM64 build.
-> Install QEMU emulation before the first deploy:
 >
-> ```bash
-> docker run --privileged --rm tonistiigi/binfmt --install all
-> ```
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d
@@ -389,6 +383,10 @@ docker compose -f docker-compose.prod.yml up -d
 ### Verification
 
 ```bash
+# -v removes named volumes — correct for lab testing, destructive with real data
+docker compose -f docker-compose.prod.yml down -v
+docker compose -f docker-compose.prod.yml up -d
+
 docker compose -f docker-compose.prod.yml ps
 # → NAME            STATUS
 # → file-transfer   Up X seconds (healthy)

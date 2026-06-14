@@ -143,5 +143,46 @@ ls
 
 ---
 
+## Step 4 — Cross-architecture images (ARM64 hosts)
+
+### What was done
+
+Some images in this lab — `internetsystemsconsortium/bind9`, `atmoz/sftp` —
+have no native ARM64 build. On EC2 t4g.micro (Graviton2) these images require
+QEMU user-mode emulation to run. Install it once per host before deploying any
+module that uses a `linux/amd64`-only image.
+
+```bash
+docker run --privileged --rm tonistiigi/binfmt --install all
+```
+
+### Why
+
+Docker Engine on Linux does not include cross-architecture emulation by default.
+`tonistiigi/binfmt` registers QEMU handlers in the kernel's `binfmt_misc`
+subsystem — after this, the kernel knows how to execute x86_64 binaries using
+the QEMU translator.
+
+> **This registration does not survive a host reboot.** Re-run the command
+> after any reboot or after restarting the Docker daemon if cross-architecture
+> containers stop working.
+
+Where possible, modules use images with native ARM64 builds in their
+`docker-compose.prod.yml` to avoid this overhead entirely. The QEMU install
+is a fallback for images where no ARM64 build exists.
+
+### Verification
+
+```bash
+ls /proc/sys/fs/binfmt_misc/ | grep qemu
+# → qemu-x86_64  (among others)
+
+# Confirm an amd64-only image runs without exec format error
+docker run --rm --platform linux/amd64 alpine uname -m
+# → x86_64
+```
+
+---
+
 **Next:** deploy a module using its `docker-compose.prod.yml`, or deploy the
 full stack from [`stacks/full-infra/`](../../stacks/full-infra/README.md).

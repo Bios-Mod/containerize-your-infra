@@ -41,6 +41,34 @@ docker compose version
 
 ---
 
+## Step 3 — Cross-architecture images
+
+### What was done
+
+No action required. OrbStack includes transparent QEMU emulation for
+`linux/amd64` images on Apple Silicon — any image without a native ARM64
+build runs automatically without additional configuration.
+
+### Why
+
+OrbStack ships with Rosetta-style emulation integrated into the Docker runtime.
+When a `linux/amd64` image is pulled on an ARM64 host, OrbStack intercepts the
+execution and runs it through its built-in translator. This is why modules like
+`file-transfer` (`atmoz/sftp`) work in dev without any setup step.
+
+In prod (Docker Engine on Ubuntu ARM64) this emulation is not included —
+see [`environments/prod/setup.md`](../prod/setup.md) for the equivalent step.
+
+### Verification
+
+```bash
+# An amd64-only image runs without exec format error or segfault
+docker run --rm --platform linux/amd64 alpine uname -m
+# → x86_64
+```
+
+---
+
 ## Step 2 — Clone the repository
 
 ### What was done

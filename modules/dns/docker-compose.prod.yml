@@ -16,11 +16,7 @@ services:
       - "53:53/tcp"
       - "53:53/udp"
     volumes:
-      - ./configs/bind/named.conf:/etc/bind/named.conf:ro
-      - ./configs/bind/named.conf.options:/etc/bind/named.conf.options:ro
-      - ./configs/bind/named.conf.local:/etc/bind/named.conf.local:ro
-      - ./configs/bind/db.lab.local:/etc/bind/db.lab.local:ro
-      - ./configs/bind/db.172.20.0:/etc/bind/db.172.20.0:ro
+      - ./configs/bind:/etc/bind:ro
       - dns-cache:/var/cache/bind
     networks:
       lab-net:

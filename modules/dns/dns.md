@@ -305,6 +305,18 @@ host path.
 > `db.*`) are bind-mounted read-only from `configs/bind/`. The named volume
 > covers only the BIND9 working directory (`/var/cache/bind`) where runtime
 > state is written.
+>
+> **EC2 Ubuntu 24.04 — port 53 conflict:** `systemd-resolved` occupies port 53
+> on the host by default. Free it before deploying:
+>
+> ```bash
+> sudo mkdir -p /etc/systemd/resolved.conf.d/
+> sudo tee /etc/systemd/resolved.conf.d/no-stub.conf << 'EOF'
+> [Resolve]
+> DNSStubListener=no
+> EOF
+> sudo systemctl restart systemd-resolved
+> ```
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d
@@ -315,6 +327,10 @@ docker compose -f docker-compose.prod.yml up -d
 ### Verification
 
 ```bash
+# -v removes named volumes — correct for lab testing, destructive with real data
+docker compose -f docker-compose.prod.yml down -v
+docker compose -f docker-compose.prod.yml up -d
+
 docker compose -f docker-compose.prod.yml ps
 # → NAME   STATUS
 # → dns    Up X seconds (healthy)
