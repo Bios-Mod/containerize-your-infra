@@ -1,0 +1,46 @@
+# Deploy to:   Ubuntu 24.04 LTS — EC2 t4g.micro or local VM
+# Apply:       docker compose -f docker-compose.prod.yml up -d
+# Module:      dns
+# Requires:    configs/bind/named.conf, named.conf.options, named.conf.local, db.lab.local, db.172.20.0
+#
+# Production compose for the dns module.
+# Parameters modified from baseline: restart, read-only config mounts, named volume for cache, healthcheck
+
+services:
+  dns:
+    image: internetsystemsconsortium/bind9:9.20
+    platform: linux/amd64
+    container_name: dns
+    restart: unless-stopped
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+    volumes:
+      - ./configs/bind/named.conf:/etc/bind/named.conf:ro
+      - ./configs/bind/named.conf.options:/etc/bind/named.conf.options:ro
+      - ./configs/bind/named.conf.local:/etc/bind/named.conf.local:ro
+      - ./configs/bind/db.lab.local:/etc/bind/db.lab.local:ro
+      - ./configs/bind/db.172.20.0:/etc/bind/db.172.20.0:ro
+      - dns-cache:/var/cache/bind
+    networks:
+      lab-net:
+        ipv4_address: 172.20.0.10
+    command: ["-g"]
+    healthcheck:
+      test: ["CMD", "dig", "@127.0.0.1", "lab.local", "SOA", "+short", "+time=2"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+networks:
+  lab-net:
+    name: lab-net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+
+volumes:
+  dns-cache:
+    name: dns-cache
