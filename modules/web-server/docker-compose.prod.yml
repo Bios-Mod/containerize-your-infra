@@ -12,7 +12,7 @@ services:
     container_name: web-server
     restart: unless-stopped
     ports:
-      - "8080:80"
+      - "8080:8080"
     volumes:
       - ./configs/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./configs/html/index.html:/usr/share/nginx/html/index.html:ro
@@ -26,7 +26,7 @@ services:
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080"]
       interval: 30s
       timeout: 5s
       retries: 3

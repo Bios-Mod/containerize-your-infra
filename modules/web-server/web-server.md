@@ -7,7 +7,7 @@
 ## Introduction
 
 This document covers the deployment of Nginx as a static web server inside a
-Docker container. The service exposes port 80 and serves a static HTML page —
+Docker container. The service exposes port 8080 and serves a static HTML page —
 the lab index. TLS termination and HTTPS are out of scope for this environment;
 they are addressed in the production overlay (`environments/prod/`).
 
@@ -30,7 +30,7 @@ container hardening patterns that carry forward to every subsequent module.
 | Parameter    | Value                                                        |
 |--------------|--------------------------------------------------------------|
 | Image        | `nginxinc/nginx-unprivileged:stable-alpine`                  |
-| Port         | 8080 → 80 (HTTP)                                             |
+| Port         | 8080 → 8080 (HTTP)                                             |
 | TLS          | None — dev environment                                       |
 | Content      | Static HTML (lab index page)                                 |
 | Config mount | Bind mount (dev) — `configs/nginx/`                          |
@@ -46,7 +46,7 @@ affects the module state — no files are created, no config is applied.
 **1. Pull and run the image as-is**
 
 ```bash
-docker run --rm -p 8080:80 nginxinc/nginx-unprivileged:stable-alpine
+docker run --rm -p 8080:8080 nginxinc/nginx-unprivileged:stable-alpine
 ```
 
 Open `http://localhost:8080` in a browser. This is the default Nginx welcome
@@ -72,14 +72,14 @@ exit
 **3. Verify that read-only breaks without tmpfs**
 
 ```bash
-docker run --rm -p 8080:80 --read-only nginxinc/nginx-unprivileged:stable-alpine
+docker run --rm -p 8080:8080 --read-only nginxinc/nginx-unprivileged:stable-alpine
 ```
 
 The container exits immediately. Nginx cannot write `/var/run/nginx.pid`.
 Now add the two tmpfs mounts — the same ones declared in `docker-compose.yml`:
 
 ```bash
-docker run --rm -p 8080:80 --read-only \
+docker run --rm -p 8080:8080 --read-only \
   --tmpfs /var/cache/nginx \
   --tmpfs /var/run \
   --tmpfs /tmp \
@@ -171,9 +171,14 @@ The default Nginx configuration is replaced with a minimal custom config
 scoped to this module. The file is mounted into the container at
 `/etc/nginx/nginx.conf` via the bind mount declared in Step 1.
 
-The config defines a single `server` block listening on port 80, serving
+The config defines a single `server` block listening on port 8080, serving
 static files from `/usr/share/nginx/html`, with access and error logs
 directed to stdout/stderr so Docker captures them natively.
+
+`nginx-unprivileged` runs as a non-root user without `CAP_NET_BIND_SERVICE`,
+so it cannot bind to ports below 1024. Port 8080 is the correct internal
+listen port for this image — the host-side mapping (`8080:8080`) is adjusted
+accordingly in the Compose file.
 
 📄 [`configs/nginx/nginx.conf`](configs/nginx/nginx.conf) — mounted at `/etc/nginx/nginx.conf`
 

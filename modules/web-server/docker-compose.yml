@@ -14,7 +14,7 @@ services:
     image: nginxinc/nginx-unprivileged:stable-alpine
     container_name: web-server
     ports:
-      - "8080:80"
+      - "8080:8080"
     volumes:
       - ./configs/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./configs/html/index.html:/usr/share/nginx/html/index.html:ro

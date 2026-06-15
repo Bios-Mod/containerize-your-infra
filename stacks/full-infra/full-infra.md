@@ -61,6 +61,22 @@ grep -c "users:" modules/reverse-proxy/configs/traefik/dynamic.yml
 ls modules/file-transfer/configs/ssh/
 # → ssh_host_ed25519_key  ssh_host_rsa_key
 
+# SSH host keys — permissions must be 600 (sshd rejects keys readable by others)
+stat -c "%a %n" modules/file-transfer/configs/ssh/ssh_host_ed25519_key modules/file-transfer/configs/ssh/ssh_host_rsa_key
+# → 600 modules/file-transfer/configs/ssh/ssh_host_ed25519_key
+# → 600 modules/file-transfer/configs/ssh/ssh_host_rsa_key
+```
+
+> **SSH host key permissions:** the host keys must be owned by root and have
+> permissions `600` before deploying. If they are `644`, `sshd` inside the
+> container will ignore them, generate its own keys, and reject client
+> connections silently.
+> ```bash
+> sudo chmod 600 modules/file-transfer/configs/ssh/ssh_host_ed25519_key
+> sudo chmod 600 modules/file-transfer/configs/ssh/ssh_host_rsa_key
+> ```
+
+```bash
 # BIND9 zone files
 ls modules/dns/configs/bind/
 # → named.conf  named.conf.options  named.conf.local  db.lab.local  db.172.20.0
@@ -100,8 +116,8 @@ ls modules/web-server/configs/nginx/ modules/web-server/configs/html/
 ### What was done
 
 The full stack is deployed from `stacks/full-infra/` using the unified
-`docker-compose.prod.yml`. All four services start on the shared `infra-net`
-network. Named volumes for persistent data (`file-transfer-data`, `dns-cache`)
+`docker-compose.prod.yml`. All four services start on the shared `proxy-net` network.
+Named volumes for persistent data (`file-transfer-data`, `dns-cache`)
 are created automatically on first run.
 
 ```bash
@@ -128,6 +144,12 @@ network. Every other service is assigned a dynamic IP from the `proxy-net`
 pool — they do not need stable addresses because they are reached by name
 or through Traefik's label-based routing.
 
+The `TRAEFIK_PROVIDERS_DOCKER_NETWORK` environment variable overrides the
+`network` setting of the Docker provider at runtime. This ensures Traefik
+contacts backends through `proxy-net` regardless of what the static
+`traefik.yml` specifies — necessary when the same `traefik.yml` is shared
+between the standalone module and this full-stack compose.
+
 ### Verification
 
 ```bash
@@ -150,6 +172,7 @@ docker network inspect proxy-net --format '{{ range .Containers }}{{ .Name }} {{
 docker volume ls | grep -E "file-transfer-data|dns-cache"
 # → local   dns-cache
 # → local   file-transfer-data
+```
 
 ---
 
@@ -166,7 +189,7 @@ No new config or deploy action — verification only.
 ### Why
 
 Individual module verification confirmed each service in isolation. This step
-confirms they work together: Traefik discovers `web-server` on `infra-net`,
+confirms they work together: Traefik discovers `web-server` on `proxy-net`,
 DNS resolves names across the shared network, and file transfer is reachable
 on its dedicated port. A passing stack is not four healthy containers — it is
 four healthy containers that interact correctly.
@@ -202,8 +225,10 @@ dig @127.0.0.1 google.com +short
 
 # ── File Transfer ─────────────────────────────────────────────────────────
 
-# SFTP port is open
-ssh -p 2222 -o StrictHostKeyChecking=no labuser@127.0.0.1 -i modules/file-transfer/configs/keys/labuser_ed25519 exit
+# SFTP port is open (container listens on 2222, mapped to host 2222)
+ssh -p 2222 -o StrictHostKeyChecking=no labuser@127.0.0.1 \
+  -i ../../modules/file-transfer/configs/keys/labuser_ed25519 exit
+
 # → (connection closes cleanly — exit code 0)
 ```
 
