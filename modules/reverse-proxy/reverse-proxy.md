@@ -281,4 +281,67 @@ curl -sk -o /dev/null -w "%{http_code}" https://traefik.localhost/dashboard/
 
 ---
 
+## Production deployment
+
+In production the module runs from `docker-compose.prod.yml` instead of
+`docker-compose.yml`. The image, hardening, and Traefik configuration are identical —
+what changes is the operational layer.
+
+| Parameter | dev | prod |
+|---|---|---|
+| Config mounts (`traefik.yml`, `dynamic.yml`, `certs/`) | Bind mount | Bind mount `:ro` |
+| Restart policy | `"no"` (default) | `unless-stopped` |
+| Healthcheck | None | HTTP probe on port 8080 (Traefik API) |
+
+Config files are always mounted from the repository as read-only. Traefik
+carries no writable runtime state that needs to persist across container
+replacement — no named volumes are required for this module.
+
+> **`api.insecure: false` in `traefik.yml` (prod posture):** The internal
+> dashboard entrypoint (`:8080`) must not be published in production. Set
+> `api.insecure: false` in `traefik.yml` and remove the `"8080:8080"` port
+> mapping. Dashboard access goes exclusively through the label-based router
+> on `:443`.
+>
+> **EC2 — ports 80 and 443:** Confirm the security group allows inbound TCP
+> on ports 80 and 443 before deploying.
+
+```bash
+docker compose -f docker-compose.prod.yml up -d
+```
+
+📄 [`docker-compose.prod.yml`](docker-compose.prod.yml)
+
+### Verification
+
+```bash
+# -v is safe here — Traefik has no named volumes
+docker compose -f docker-compose.prod.yml down -v
+docker compose -f docker-compose.prod.yml up -d
+
+docker compose -f docker-compose.prod.yml ps
+# → NAME         STATUS
+# → traefik      Up X seconds (healthy)
+# → web-server   Up X seconds
+
+# Confirm healthcheck is passing — wait ~15s after start_period
+docker inspect traefik --format '{{ .State.Health.Status }}'
+# → healthy
+
+# Confirm restart policy survives daemon restart
+sudo systemctl restart docker
+sleep 5
+docker ps
+# → traefik      Up X seconds
+# → web-server   Up X seconds
+
+# HTTPS proxy works (run from EC2 host terminal)
+curl -sk -o /dev/null -w "%{http_code}" -H "Host: web.localhost" https://localhost:443
+# → 200
+
+# Dashboard auth is active
+curl -sk -o /dev/null -w "%{http_code}" https://traefik.localhost/dashboard/
+# → 401
+```
+
 **Next:** [`environments/`](../../environments/README.md)

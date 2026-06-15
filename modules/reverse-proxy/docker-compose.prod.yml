@@ -1,22 +1,19 @@
-# Deploy to:   modules/reverse-proxy/
-# Apply:       docker compose up -d
+# Deploy to:   Ubuntu 24.04 LTS — EC2 t4g.micro or local VM
+# Apply:       docker compose -f docker-compose.prod.yml up -d
 # Module:      reverse-proxy
-# Requires:    configs/traefik/traefik.yml, configs/traefik/dynamic.yml
+# Requires:    configs/traefik/traefik.yml, configs/traefik/dynamic.yml, configs/traefik/certs/
 #
-# Traefik v3.7 reverse proxy with BasicAuth-protected dashboard and Nginx backend.
-# Parameters modified from baseline: none
-#
-# Note: TLS certs require configs/traefik/certs/ to exist before up (Step 1).
+# Production compose for the reverse-proxy module.
+# Parameters modified from baseline: restart, api.insecure disabled, healthcheck
 
 services:
   traefik:
     image: traefik:v3.7
     container_name: traefik
-    restart: "no"
+    restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
-      - "8080:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./configs/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
@@ -29,13 +26,19 @@ services:
       - "traefik.http.routers.dashboard.service=api@internal"
       - "traefik.http.routers.dashboard.tls=true"
       - "traefik.http.routers.dashboard.middlewares=auth-dashboard@file"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - proxy-net
 
   web-server:
     image: nginxinc/nginx-unprivileged:stable-alpine
     container_name: web-server
-    restart: "no"
+    restart: unless-stopped
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.web-server.rule=Host(`web.localhost`)"
