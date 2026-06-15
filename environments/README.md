@@ -1,10 +1,11 @@
 # Environments
 
-This directory contains environment-specific Compose configurations for the lab.
+This directory contains environment-specific setup documentation for the lab.
 
 Each module ships its own `docker-compose.yml` for development and a
-`docker-compose.prod.yml` for production. The files in this directory
-aggregate all modules into a single deployable unit per environment.
+`docker-compose.prod.yml` for standalone production deployment. The full-stack
+production compose that aggregates all modules into a single deployable unit
+lives in [`stacks/full-infra/`](../stacks/full-infra/README.md).
 
 ---
 
@@ -22,4 +23,4 @@ aggregate all modules into a single deployable unit per environment.
 ---
 
 - **dev** → [`dev/setup.md`](dev/setup.md)
-- **prod** → [`prod/setup.md`](prod/setup.md) · [`prod/docker-compose.prod.yml`](prod/docker-compose.prod.yml)
+- **prod** → [`prod/setup.md`](prod/setup.md)

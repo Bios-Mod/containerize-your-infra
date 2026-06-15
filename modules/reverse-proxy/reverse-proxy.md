@@ -347,4 +347,4 @@ curl -sk -o /dev/null -w "%{http_code}\n" --resolve traefik.localhost:443:127.0.
 docker compose -f docker-compose.prod.yml exec traefik wget -qO- http://127.0.0.1:8080/ping && echo ""
 ```
 
-**Next:** [`environments/`](../../environments/README.md)
+**Next:** [`stacks/full-infra/`](../../stacks/full-infra/README.md)
