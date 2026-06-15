@@ -15,7 +15,7 @@ log:
 
 api:
   dashboard: true
-  insecure: false 
+  insecure: false
 
 entryPoints:
   web:
@@ -29,7 +29,7 @@ entryPoints:
   websecure:
     address: ":443"
   dashboard:
-    address: ":8080" 
+    address: ":8080"
 
 providers:
   docker:
@@ -39,5 +39,6 @@ providers:
   file:
     filename: /etc/traefik/dynamic.yml
     watch: true
-    
-ping: {}
+
+ping:
+  entryPoint: "dashboard"

@@ -336,12 +336,15 @@ docker ps
 # → web-server   Up X seconds
 
 # HTTPS proxy works (run from EC2 host terminal)
-curl -sk -o /dev/null -w "%{http_code}" -H "Host: web.localhost" https://localhost:443
+curl -sk -o /dev/null -w "%{http_code}\n" --resolve web.localhost:443:127.0.0.1 https://web.localhost:443
 # → 200
 
 # Dashboard auth is active
-curl -sk -o /dev/null -w "%{http_code}" https://traefik.localhost/dashboard/
+curl -sk -o /dev/null -w "%{http_code}\n" --resolve traefik.localhost:443:127.0.0.1 https://traefik.localhost/dashboard/
 # → 401
+
+# In production posture, port `8080` is kept strictly private inside the container network to avoid metrics leakage. To verify the internal `/ping` endpoint from the EC2 host, you must execute the probe directly inside the container's network namespace:
+docker compose -f docker-compose.prod.yml exec traefik wget -qO- http://127.0.0.1:8080/ping && echo ""
 ```
 
 **Next:** [`environments/`](../../environments/README.md)

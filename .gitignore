@@ -15,3 +15,6 @@ modules/file-transfer/configs/keys/labuser_ed25519
 
 # Runtime data — not tracked, recreated on deploy
 modules/file-transfer/data/
+
+# TLS certificates — generated locally, never committed
+modules/reverse-proxy/configs/traefik/certs/*
