@@ -11,10 +11,10 @@ from a single `docker compose` command. Each module retains its own
 `docker-compose.prod.yml` for standalone deployment — this stack is the
 integration layer that connects them.
 
-All services share a single bridge network (`infra-net`). Traefik is the sole
+All services share a single bridge network (`proxy-net`). Traefik is the sole
 HTTP/S ingress: it terminates TLS and routes traffic to the web server by
 label. DNS runs with a fixed IP on the same network so any container can
-resolve `lab.local` names by pointing its resolver to `172.20.0.10`.
+resolve `lab.local` names by pointing its resolver to `172.21.0.10`.
 File transfer is exposed directly on port `2222` — it has no HTTP frontend
 and does not go through Traefik.
 
@@ -39,8 +39,8 @@ and does not go through Traefik.
 | `file-transfer` | `lscr.io/linuxserver/openssh-server:latest` | `2222` | SFTP, direct access |
 | `dns` | `ubuntu/bind9:latest` | `53 TCP/UDP` | Resolver + authoritative zone |
 
-**Network:** `infra-net` — `172.20.0.0/24`
-**DNS fixed IP:** `172.20.0.10`
+**Network:** `proxy-net` — `172.21.0.0/24`
+**DNS fixed IP:** `172.21.0.10`
 
 ---
 
@@ -52,6 +52,10 @@ Confirm that each module's configs are in place:
 # TLS certificates (required by Traefik at startup)
 ls modules/reverse-proxy/configs/traefik/certs/
 # → lab.crt  lab.key
+
+# BasicAuth hash (required for dashboard access)
+grep -c "users:" modules/reverse-proxy/configs/traefik/dynamic.yml
+# → 1  (confirms the basicAuth block exists)
 
 # SSH host keys (required by file-transfer at startup)
 ls modules/file-transfer/configs/ssh/
@@ -66,6 +70,16 @@ ls modules/web-server/configs/nginx/ modules/web-server/configs/html/
 # → nginx.conf
 # → index.html
 ```
+
+> **Traefik BasicAuth password:** the bcrypt hash in
+> `modules/reverse-proxy/configs/traefik/dynamic.yml` was generated during
+> the reverse-proxy module. If you need to reset it:
+> ```bash
+> # On any host with apache2-utils installed (sudo apt-get install -y apache2-utils)
+> htpasswd -nB admin
+> # → admin:$2y$...  ← replace the existing line in dynamic.yml under basicAuth.users
+> ```
+> Traefik reloads the dynamic config without restart (`watch: true`).
 
 > **EC2 Ubuntu 24.04 — port 53 conflict:** `systemd-resolved` occupies port 53
 > on the host by default. Free it before deploying:
@@ -100,8 +114,8 @@ docker compose -f docker-compose.prod.yml up -d
 ### Why
 
 Running the stack from a single compose file gives Docker a complete picture
-of all service dependencies, networks, and volumes in one operation. Docker
-creates the `infra-net` network and both named volumes before starting any
+of all service dependencies, networks, and volumes in one operation. Docker 
+creates the `proxy-net` network and both named volumes before starting any
 container — there is no manual pre-provisioning step.
 
 The config files stay in `modules/*/configs/` and are referenced with relative
@@ -109,8 +123,8 @@ paths. This avoids duplication: a module's config is the single source of
 truth regardless of whether the module is deployed standalone or as part of
 this stack.
 
-DNS gets a fixed IP (`172.20.0.10`) because it is the resolver for the
-network. Every other service is assigned a dynamic IP from the `infra-net`
+DNS gets a fixed IP (`172.21.0.10`) because it is the resolver for the
+network. Every other service is assigned a dynamic IP from the `proxy-net`
 pool — they do not need stable addresses because they are reached by name
 or through Traefik's label-based routing.
 
@@ -125,18 +139,17 @@ docker compose -f docker-compose.prod.yml ps
 # → file-transfer   Up X seconds (healthy)
 # → dns             Up X seconds (healthy)
 
-# All containers are on infra-net
-docker network inspect infra-net --format '{{ range .Containers }}{{ .Name }} {{ .IPv4Address }}{{ "\n" }}{{ end }}'
-# → traefik         172.20.0.X/24
-# → web-server      172.20.0.X/24
-# → file-transfer   172.20.0.X/24
-# → dns             172.20.0.10/24
+# All containers are on proxy-net
+docker network inspect proxy-net --format '{{ range .Containers }}{{ .Name }} {{ .IPv4Address }}{{ "\n" }}{{ end }}'
+# → traefik         172.21.0.X/24
+# → web-server      172.21.0.X/24
+# → file-transfer   172.21.0.X/24
+# → dns             172.21.0.10/24
 
 # Named volumes were created
 docker volume ls | grep -E "file-transfer-data|dns-cache"
 # → local   dns-cache
 # → local   file-transfer-data
-```
 
 ---
 
@@ -181,7 +194,7 @@ curl -s -o /dev/null -w "%{http_code}\n" --resolve web.localhost:80:127.0.0.1 ht
 
 # Authoritative zone responds
 dig @127.0.0.1 dns.lab.local +short
-# → 172.20.0.10
+# → 172.21.0.10
 
 # External resolution through forwarders
 dig @127.0.0.1 google.com +short
@@ -215,8 +228,8 @@ deleted unless `down -v` is explicitly passed.
 ### Verification
 
 ```bash
-# Bring the stack down 
-docker compose -f docker-compose.prod.yml down -v
+# Bring the stack down (named volumes are preserved without -v , if you want to destroy everything use -v flag)
+docker compose -f docker-compose.prod.yml down 
 
 # Confirm volumes survived
 docker volume ls | grep -E "file-transfer-data|dns-cache"

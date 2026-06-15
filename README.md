@@ -39,10 +39,17 @@ Set up your environment before applying any module:
 
 1. Choose your environment and follow its setup guide
 2. Apply modules in order — each module is independent and self-contained
+3. Deploy the full stack once all modules are verified
 
-> **Production deployment:** each module includes a `docker-compose.prod.yml` for 
-> standalone prod deployment. The full stack is orchestrated from 
-> [`stacks/full-infra/`](stacks/full-infra/README.md).
+> **Standalone module deployment:** each module includes a `docker-compose.prod.yml`
+> for isolated prod deployment from its own directory.
+>
+> **Full-stack deployment:** all modules as a single unit, orchestrated from
+> [`stacks/full-infra/`](stacks/full-infra/README.md):
+> ```bash
+> cd stacks/full-infra
+> docker compose -f docker-compose.prod.yml up -d
+> ```
 
 ---
 
@@ -54,6 +61,7 @@ Set up your environment before applying any module:
 | File Transfer | atmoz/sftp | SFTP (OpenSSH subsystem) | [`modules/file-transfer/`](modules/file-transfer/README.md) |
 | DNS | BIND9 | BIND9 | [`modules/dns/`](modules/dns/README.md) |
 | Reverse Proxy | Traefik | Nginx proxy block | [`modules/reverse-proxy/`](modules/reverse-proxy/README.md) |
+| Full Infrastructure Stack | All modules | All modules combined | [`stacks/full-infra/`](stacks/full-infra/README.md) |
 
 > **Automation phase — planned next:** Each module includes an `automation/` directory reserved for this. The upcoming phase coordinated with the automation phase of [build-your-infra](https://github.com/Bios-Mod/build-your-infra).
 
