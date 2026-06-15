@@ -55,7 +55,7 @@ Set up your environment before applying any module:
 | DNS | BIND9 | BIND9 | [`modules/dns/`](modules/dns/README.md) |
 | Reverse Proxy | Traefik | Nginx proxy block | [`modules/reverse-proxy/`](modules/reverse-proxy/README.md) |
 
-> **Automation phase — planned next:** Each module includes an `automation/` directory reserved for this. The upcoming phase will cover GitHub Actions for image builds and compose validation, coordinated with the automation phase of [build-your-infra](https://github.com/Bios-Mod/build-your-infra).
+> **Automation phase — planned next:** Each module includes an `automation/` directory reserved for this. The upcoming phase coordinated with the automation phase of [build-your-infra](https://github.com/Bios-Mod/build-your-infra).
 
 ---
 
