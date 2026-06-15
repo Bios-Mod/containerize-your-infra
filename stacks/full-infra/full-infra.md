@@ -215,8 +215,8 @@ deleted unless `down -v` is explicitly passed.
 ### Verification
 
 ```bash
-# Bring the stack down (preserves named volumes)
-docker compose -f docker-compose.prod.yml down
+# Bring the stack down 
+docker compose -f docker-compose.prod.yml down -v
 
 # Confirm volumes survived
 docker volume ls | grep -E "file-transfer-data|dns-cache"

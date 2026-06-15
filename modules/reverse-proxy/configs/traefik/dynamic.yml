@@ -23,7 +23,7 @@ http:
         # Generate with: htpasswd -nB admin
         # Replace the value below with your own hash — never commit plaintext passwords
         users:
-          - admin:$2y$05$5uS0ZtTjyCN8fBMsxrfFi.ESElJ9c.9eiz6YULFlPzrTUg5adJ7Bi
+          - admin:$2y$05$ThrZxLerUE5.ihyTLz5eWOwF039y05.Z1DRFrOzn7wJiBG8DkkRnm
 
 tls:
   certificates:

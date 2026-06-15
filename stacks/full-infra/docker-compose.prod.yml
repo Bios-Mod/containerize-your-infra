@@ -4,9 +4,9 @@
 # Requires:    modules/web-server/configs/, modules/file-transfer/configs/,
 #              modules/dns/configs/, modules/reverse-proxy/configs/traefik/certs/
 #
-# Full-stack production compose. Aggregates all modules into a single deployable unit
-# on a shared bridge network. Traefik is the sole HTTP/S ingress.
-# Parameters modified from baseline: unified infra-net, no per-module network isolation
+# Full-stack production compose. Aggregates all modules into a single deployable unit.
+# Config files are referenced from each module's configs/ directory — no duplication.
+# Parameters modified from baseline: shared proxy-net, Traefik as sole HTTP/S ingress
 
 services:
 
@@ -37,7 +37,7 @@ services:
       retries: 3
       start_period: 10s
     networks:
-      - infra-net
+      - proxy-net
 
   # ── Web Server ────────────────────────────────────────────────────────────
   web-server:
@@ -69,7 +69,7 @@ services:
       retries: 3
       start_period: 10s
     networks:
-      - infra-net
+      - proxy-net
 
   # ── File Transfer ─────────────────────────────────────────────────────────
   file-transfer:
@@ -102,7 +102,7 @@ services:
       retries: 3
       start_period: 15s
     networks:
-      - infra-net
+      - proxy-net
 
   # ── DNS ───────────────────────────────────────────────────────────────────
   dns:
@@ -130,17 +130,17 @@ services:
       retries: 3
       start_period: 5s
     networks:
-      infra-net:
-        ipv4_address: 172.20.0.10
+      proxy-net:
+        ipv4_address: 172.21.0.10
 
 # ── Networks ──────────────────────────────────────────────────────────────
 networks:
-  infra-net:
+  proxy-net:
     driver: bridge
-    name: infra-net
+    name: proxy-net
     ipam:
       config:
-        - subnet: 172.20.0.0/24
+        - subnet: 172.21.0.0/24
 
 # ── Volumes ───────────────────────────────────────────────────────────────
 volumes:
