@@ -84,7 +84,6 @@ containerize-your-infra/
 │   ├── dev
 │   │   └── setup.md
 │   └── prod
-│       ├── docker-compose.prod.yml
 │       └── setup.md
 ├── modules
 │   ├── dns
@@ -93,6 +92,7 @@ containerize-your-infra/
 │   │   ├── configs
 │   │   │   └── bind
 │   │   ├── dns.md
+│   │   ├── docker-compose.prod.yml
 │   │   └── docker-compose.yml
 │   ├── file-transfer
 │   │   ├── README.md
@@ -102,6 +102,7 @@ containerize-your-infra/
 │   │   │   └── ssh
 │   │   ├── data
 │   │   │   └── upload
+│   │   ├── docker-compose.prod.yml
 │   │   ├── docker-compose.yml
 │   │   └── file-transfer.md
 │   ├── reverse-proxy
@@ -109,6 +110,7 @@ containerize-your-infra/
 │   │   ├── automation
 │   │   ├── configs
 │   │   │   └── traefik
+│   │   ├── docker-compose.prod.yml
 │   │   ├── docker-compose.yml
 │   │   └── reverse-proxy.md
 │   └── web-server
@@ -122,5 +124,7 @@ containerize-your-infra/
 │       └── web-server.md
 └── stacks
     └── full-infra
-        └── README.md
+        ├── README.md
+        ├── docker-compose.prod.yml
+        └── full-infra.md
 ```
