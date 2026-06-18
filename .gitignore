@@ -3,7 +3,7 @@
 *.pem
 *.p12
 *.pfx
-# Agent context — private working files
+
 AGENTS.md
 context/
 # SSH host keys — private keys must never be committed
@@ -18,3 +18,28 @@ modules/file-transfer/data/
 
 # TLS certificates — generated locally, never committed
 modules/reverse-proxy/configs/traefik/certs/*
+
+# 1. Bloquear los binarios locales (Los plugins descargados por init)
+.terraform/
+
+# 2. Bloquear archivos de estado local (CONTIENEN SECRETOS EN TEXTO PLANO)
+# Nunca deben subirse a GitHub bajo ningún concepto.
+- .tfstate
+*.tfstate.*
+
+# 3. Bloquear el archivo de bloqueo de estado local de ejecución
+.terraform.tfstate.lock.info
+
+# 4. Bloquear archivos de variables de entorno específicas (Credenciales/Fijos locales)
+# Aquí es donde meterás contraseñas o IPs específicas de tus entornos más adelante.
+- .tfvars
+*.tfvars.json
+
+# 5. Bloquear archivos de Plan de Ejecución guardados de forma externa
+# (Pueden contener datos sensibles generados durante el plan)
+- .tfplan
+*.tfgraph.png
+
+# 6. Logs de caídas del motor
+crash.log
+crash.*.log
