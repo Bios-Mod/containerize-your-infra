@@ -1,9 +1,9 @@
-; Deploy to:   configs/bind/db.172.20.0
-; Apply:       docker compose up -d (bind mount → /etc/bind/db.172.20.0)
+; Deploy to:   configs/bind/db.172.21.0
+; Apply:       docker compose up -d (bind mount → /etc/bind/db.172.21.0)
 ; Module:      dns
 ; Requires:    none
 ;
-; Reverse zone for 172.20.0.0/24 — PTR records for lab hosts.
+; Reverse zone for 172.21.0.0/24 — PTR records for lab hosts.
 ; Parameters modified from baseline: PTR records for dns and web
 
 $TTL 86400

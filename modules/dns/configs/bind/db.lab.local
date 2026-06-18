@@ -16,5 +16,5 @@ $TTL 86400
 
     IN  NS  dns.lab.local.
 
-dns     IN  A   172.20.0.10
-web     IN  A   172.20.0.20
+dns     IN  A   172.21.0.10
+web     IN  A   172.21.0.20
