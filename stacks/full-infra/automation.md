@@ -241,7 +241,9 @@ curl -s -o /dev/null -w "%{http_code}\n" http://$(curl -s ifconfig.me)
 # → 404 or 301
 
 # ── Traefik dashboard ──────────────────────────────────────────────────────
-curl -sk -o /dev/null -w "%{http_code}\n" https://localhost/dashboard/
+curl -sk -o /dev/null -w "%{http_code}\n" \
+  --resolve traefik.localhost:443:127.0.0.1 \
+  https://traefik.localhost/dashboard/
 # → 401  (auth challenge — Traefik está vivo)
 
 # ── DNS ────────────────────────────────────────────────────────────────────
