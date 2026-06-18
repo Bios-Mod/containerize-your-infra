@@ -36,6 +36,7 @@ git clone https://github.com/Bios-Mod/containerize-your-infra.git \
   /home/ubuntu/containerize-your-infra
 
 # ── TLS certificates for Traefik ──────────────────────────────────────────
+mkdir -p /home/ubuntu/containerize-your-infra/modules/reverse-proxy/configs/traefik/certs
 openssl req -x509 -newkey rsa:4096 \
   -keyout /home/ubuntu/containerize-your-infra/modules/reverse-proxy/configs/traefik/certs/lab.key \
   -out /home/ubuntu/containerize-your-infra/modules/reverse-proxy/configs/traefik/certs/lab.crt \

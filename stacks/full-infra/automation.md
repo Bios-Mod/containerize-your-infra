@@ -238,7 +238,7 @@ sudo docker compose -f stacks/full-infra/docker-compose.prod.yml ps
 
 # ── Web server — HTTP redirect ─────────────────────────────────────────────
 curl -s -o /dev/null -w "%{http_code}\n" http://$(curl -s ifconfig.me)
-# → 404 or 301
+# → 301
 
 # ── Traefik dashboard ──────────────────────────────────────────────────────
 curl -sk -o /dev/null -w "%{http_code}\n" \
