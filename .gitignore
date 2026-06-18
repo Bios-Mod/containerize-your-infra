@@ -6,6 +6,7 @@
 
 AGENTS.md
 context/
+
 # SSH host keys — private keys must never be committed
 modules/file-transfer/configs/ssh/ssh_host_ed25519_key
 modules/file-transfer/configs/ssh/ssh_host_rsa_key
@@ -19,27 +20,22 @@ modules/file-transfer/data/
 # TLS certificates — generated locally, never committed
 modules/reverse-proxy/configs/traefik/certs/*
 
-# 1. Bloquear los binarios locales (Los plugins descargados por init)
+# Terraform — local plugins downloaded by init
 .terraform/
 
-# 2. Bloquear archivos de estado local (CONTIENEN SECRETOS EN TEXTO PLANO)
-# Nunca deben subirse a GitHub bajo ningún concepto.
-- .tfstate
+# Terraform — state files contain secrets in plain text, never commit
+*.tfstate
 *.tfstate.*
-
-# 3. Bloquear el archivo de bloqueo de estado local de ejecución
-.terraform.tfstate.lock.info
-
-# 4. Bloquear archivos de variables de entorno específicas (Credenciales/Fijos locales)
-# Aquí es donde meterás contraseñas o IPs específicas de tus entornos más adelante.
-- .tfvars
+terraform.tfvars
 *.tfvars.json
 
-# 5. Bloquear archivos de Plan de Ejecución guardados de forma externa
-# (Pueden contener datos sensibles generados durante el plan)
-- .tfplan
+# Terraform — lock file for local execution state
+.terraform.tfstate.lock.info
+
+# Terraform — saved plan files can contain sensitive data
+*.tfplan
 *.tfgraph.png
 
-# 6. Logs de caídas del motor
+# Terraform — crash logs
 crash.log
 crash.*.log

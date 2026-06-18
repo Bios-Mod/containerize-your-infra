@@ -26,11 +26,11 @@ The Compose stack and the Terraform plan are intentionally decoupled:
 Terraform owns the infrastructure layer; Docker Compose owns the service
 layer. Neither layer needs to know the internals of the other.
 
-| Layer | Tool | Scope |
-|---|---|---|
-| Infrastructure | Terraform | EC2, SG, EBS, key pair |
-| Services | Docker Compose | Containers, networks, volumes |
+| Layer | Tool | Scope | Doc |
+|---|---|---|---|
+| Infrastructure | Terraform | EC2, SG, EBS, key pair | [`automation.md`](automation.md) |
+| Services | Docker Compose | Containers, networks, volumes | [`full-infra.md`](full-infra.md) |
 
-Automation source: [`stacks/full-infra/automation/`](automation/)
+Terraform source: [`automation/terraform/`](automation/terraform/)
 
 **Infrastructure & AWS native equivalent:** [`stacks/full-infra`](https://github.com/Bios-Mod/build-your-infra)
