@@ -2,3 +2,5 @@
 *.html linguist-documentation=true
 Dockerfile linguist-other=true
 # *.md linguist-documentation=true
+*.yml linguist-detectable=true
+*.yaml linguist-detectable=true
