@@ -9,12 +9,32 @@
 [![Docker](https://img.shields.io/badge/Docker-Engine-2496ED?style=flat-square&logo=docker&logoColor=white)](environments/dev/setup.md)
 [![Compose](https://img.shields.io/badge/Compose-v2-2496ED?style=flat-square&logo=docker&logoColor=white)](environments/README.md)
 [![Ubuntu](https://img.shields.io/badge/Ubuntu-24.04%20LTS-orange?style=flat-square&logo=ubuntu&logoColor=white)](environments/prod/setup.md)
+[![EC2](https://img.shields.io/badge/EC2-t4g.micro-FF9900?style=flat-square&logo=amazonec2&logoColor=white)](environments/prod/setup.md)
+[![Terraform](https://img.shields.io/badge/Terraform-automation-7B42BC?style=flat-square&logo=terraform&logoColor=white)](stacks/full-infra/automation.md)
 
 A practical, step-by-step reference for deploying containerized infrastructure services using Docker. Each module covers a real service — DNS, file transfer, web server, reverse proxy — with the reasoning behind every decision explained inline.
 
 Built and tested on Ubuntu 24.04 LTS and macOS (Apple Silicon). Docker Engine on Linux (local VM + EC2 t4g.micro) and OrbStack on macOS. All configurations are architecture-agnostic unless noted.
 
 This lab deploys the same services as [build-your-infra](https://github.com/Bios-Mod/build-your-infra) — same stack, containerized. That repo covers the same infrastructure across three environments: local VM, VPS/EC2, and AWS managed services. The two repos are independent references that cover the same stack at different levels of abstraction: bare-metal and Docker.
+
+---
+
+## Deploying This Lab
+
+1. Choose your environment and follow its setup guide
+2. Apply modules in order — each module is independent and self-contained
+3. Deploy the full stack once all modules are verified
+4. Provision the production host on EC2 with Terraform — [`stacks/full-infra/automation.md`](stacks/full-infra/automation.md)
+
+> **Standalone module deployment:** each module includes a `docker-compose.prod.yml`
+> for isolated prod deployment from its own directory.
+>
+> **Full-stack deployment:** all modules as a single unit, orchestrated from
+> [`stacks/full-infra/`](stacks/full-infra/README.md).
+>
+> **Automated deployment:** Terraform provisions the EC2 host and launches the
+> full stack automatically — no manual steps on the host.
 
 ---
 
@@ -35,24 +55,6 @@ Set up your environment before applying any module:
 
 ---
 
-## Deploying This Lab
-
-1. Choose your environment and follow its setup guide
-2. Apply modules in order — each module is independent and self-contained
-3. Deploy the full stack once all modules are verified
-
-> **Standalone module deployment:** each module includes a `docker-compose.prod.yml`
-> for isolated prod deployment from its own directory.
->
-> **Full-stack deployment:** all modules as a single unit, orchestrated from
-> [`stacks/full-infra/`](stacks/full-infra/README.md):
-> ```bash
-> cd stacks/full-infra
-> docker compose -f docker-compose.prod.yml up -d
-> ```
-
----
-
 ## Modules
 
 | Module | Technology | build-your-infra equivalent | Doc |
@@ -63,7 +65,21 @@ Set up your environment before applying any module:
 | Reverse Proxy | Traefik | Nginx proxy block | [`modules/reverse-proxy/`](modules/reverse-proxy/README.md) |
 | Full Infrastructure Stack | All modules | All modules combined | [`stacks/full-infra/`](stacks/full-infra/README.md) |
 
-> **Automation phase — planned next:** Each module includes an `automation/` directory reserved for this. The upcoming phase coordinated with the automation phase of [build-your-infra](https://github.com/Bios-Mod/build-your-infra).
+---
+
+## Automation
+
+The production host is provisioned with Terraform. A single plan creates the
+VPC, subnet, security group, key pair, and EC2 instance. On first boot,
+`user_data` installs Docker Engine, clones this repository, and launches the
+full stack automatically — no manual steps on the host.
+
+| Layer | Tool | Scope |
+|---|---|---|
+| Infrastructure | Terraform | VPC, subnet, SG, key pair, EC2 |
+| Services | Docker Compose | Containers, networks, volumes |
+
+See [`stacks/full-infra/automation.md`](stacks/full-infra/automation.md) for the full implementation.
 
 ---
 
@@ -88,43 +104,34 @@ containerize-your-infra/
 ├── modules
 │   ├── dns
 │   │   ├── README.md
-│   │   ├── automation
 │   │   ├── configs
-│   │   │   └── bind
 │   │   ├── dns.md
 │   │   ├── docker-compose.prod.yml
 │   │   └── docker-compose.yml
 │   ├── file-transfer
 │   │   ├── README.md
-│   │   ├── automation
 │   │   ├── configs
-│   │   │   ├── keys
-│   │   │   └── ssh
 │   │   ├── data
-│   │   │   └── upload
 │   │   ├── docker-compose.prod.yml
 │   │   ├── docker-compose.yml
 │   │   └── file-transfer.md
 │   ├── reverse-proxy
 │   │   ├── README.md
-│   │   ├── automation
 │   │   ├── configs
-│   │   │   └── traefik
 │   │   ├── docker-compose.prod.yml
 │   │   ├── docker-compose.yml
 │   │   └── reverse-proxy.md
 │   └── web-server
 │       ├── README.md
-│       ├── automation
 │       ├── configs
-│       │   ├── html
-│       │   └── nginx
 │       ├── docker-compose.prod.yml
 │       ├── docker-compose.yml
 │       └── web-server.md
 └── stacks
     └── full-infra
         ├── README.md
+        ├── automation
+        ├── automation.md
         ├── docker-compose.prod.yml
         └── full-infra.md
 ```
