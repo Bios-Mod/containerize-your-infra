@@ -16,7 +16,7 @@ A practical, step-by-step reference for deploying containerized infrastructure s
 
 Built and tested on Ubuntu 24.04 LTS and macOS (Apple Silicon). Docker Engine on Linux (local VM + EC2 t4g.micro) and OrbStack on macOS. All configurations are architecture-agnostic unless noted.
 
-This lab deploys the same services as [build-your-infra](https://github.com/Bios-Mod/build-your-infra) — same stack, containerized. That repo covers the same infrastructure across three environments: local VM, VPS/EC2, and AWS managed services. The two repos are independent references that cover the same stack at different levels of abstraction: bare-metal and Docker.
+This lab deploys the same services as [build-your-infra](https://github.com/Bios-Mod/build-your-infra) — same stack, containerized and automated. That repo covers the same infrastructure across three environments: local VM, VPS/EC2, and AWS managed services. The two repos are independent references that cover the same stack at different levels of abstraction: bare-metal and Docker.
 
 ---
 
