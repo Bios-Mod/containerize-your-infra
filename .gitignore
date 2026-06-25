@@ -39,3 +39,6 @@ terraform.tfvars
 # Terraform — crash logs
 crash.log
 crash.*.log
+
+# cursorignore
+.cursorignore
