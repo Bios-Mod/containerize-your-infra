@@ -26,9 +26,9 @@ Changing one does not require touching the other.
 
 ```bash
 automation/terraform/
-├── main.tf # provider, EC2, SG, EBS
+├── main.tf.example # provider, EC2, SG, EBS
 ├── variables.tf # all input declarations
-├── outputs.tf # instance public IP, instance ID
+├── outputs.tf.example # instance public IP, instance ID
 ├── terraform.tfvars.example # copy to terraform.tfvars and fill in values
 └── user_data.sh # runs on first boot: Docker + clone + compose up
 ```
@@ -46,8 +46,13 @@ Run this once from `automation/terraform/` before any other command.
 
 ```bash
 cd stacks/full-infra/automation/terraform
+cp main.tf.example main.tf
+cp outputs.tf.example outputs.tf
 terraform init
 ```
+
+📄 [`automation/terraform/main.tf.example`](automation/terraform/main.tf.example)
+📄 [`automation/terraform/outputs.tf.example`](automation/terraform/outputs.tf.example)
 
 ### Why
 
@@ -62,7 +67,7 @@ in S3 with DynamoDB locking.
 ```bash
 terraform init
 # → Terraform has been successfully initialized!
-# → provider registry.terraform.io/hashicorp/aws v5.x.x
+# → provider registry.terraform.io/hashicorp/aws Vx.x.x
 ```
 
 ---
@@ -75,7 +80,7 @@ Copy the example vars file and fill in the values for your environment. No
 secrets are hardcoded in any `.tf` file.
 
 ```bash
-mv terraform.tfvars.example terraform.tfvars
+cp terraform.tfvars.example terraform.tfvars
 ```
 
 Edit `terraform.tfvars`:
@@ -100,6 +105,7 @@ real values. `allowed_ssh_cidr` restricts port 22 to your IP only — the securi
 group does not open SSH to `0.0.0.0/0` under any circumstance.
 
 > **Generate an SSH key pair for this lab before filling in the vars file:**
+>
 > ```bash
 > ssh-keygen -t ed25519 -f ~/.ssh/containerize-lab -C "containerize-lab"
 > ```
@@ -126,6 +132,9 @@ Generate a dry-run plan and review every resource Terraform will create before
 anything touches AWS.
 
 ```bash
+terraform fmt
+terraform validate
+
 # Save the plan to a file — guarantees apply executes exactly what was reviewed
 terraform plan -out containerize.tfplan
 ```
@@ -146,7 +155,7 @@ exactly what was reviewed in `plan` — no drift between the two steps.
 
 ```bash
 terraform plan
-# → Plan: 8 to add, 0 to change, 0 to destroy.
+# → Plan: N to add, 0 to change, 0 to destroy.
 # → (EC2 instance, security group, EBS volume, key pair)
 ```
 
@@ -183,7 +192,7 @@ instance is running. Docker Compose's job begins inside that instance.
 
 ```bash
 terraform apply
-# → Apply complete! Resources: 4 added, 0 changed, 0 destroyed.
+# → Apply complete! Resources: N added, 0 changed, 0 destroyed.
 
 terraform output
 # → instance_public_ip = "X.X.X.X"
