@@ -9,6 +9,7 @@ Contributions that improve clarity, correctness, or coverage are welcome.
 
 **Reporting issues**
 Open a GitHub Issue describing:
+
 - Which module, environment, or config file is affected
 - What the current behaviour is and what you expected
 - Your deployment context (`dev` or `prod`) and architecture (ARM64 or x86_64)
@@ -18,6 +19,7 @@ Open a GitHub Issue before submitting a PR for significant changes — a brief
 discussion avoids duplicated effort and keeps the lab coherent.
 
 **Submitting a pull request**
+
 1. Fork the repository and create a branch from `main`
 2. Keep changes focused — one fix or addition per PR
 3. Follow the existing conventions:
@@ -28,13 +30,13 @@ discussion avoids duplicated effort and keeps the lab coherent.
      # Module:      <module name>
      # Requires:    <prior module if applicable> / none
      #
-     # <one-line description>
      # Parameters modified from baseline:  <param → new value> / none
-     ```
+     # <one-line description>
    - Doc sections follow the `What was done / Why / Verification` structure
+     ```
    - Commands are copy-pasteable and tested
-   - Inline comments explain *why*, not just *what*
 4. If adding a new service module, open an Issue first to align on scope
+   - Inline comments explain *why*, not just *what*
 
 ---
 
