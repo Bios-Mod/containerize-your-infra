@@ -2,7 +2,7 @@
 
 # containerize-your-infra — Docker Infrastructure Lab
 
-[![Nginx](https://img.shields.io/badge/Nginx-containerized-009639?style=flat-square&logo=nginx&logoColor=white)](modules/web-server/README.md)
+[![Docker](https://img.shields.io/badge/Nginx-custom%20image-009639?style=flat-square&logo=docker&logoColor=white)](modules/web-server/README.md)
 [![BIND9](https://img.shields.io/badge/BIND9-DNS-informational?style=flat-square)](modules/dns/README.md)
 [![SFTP](https://img.shields.io/badge/SFTP-file--transfer-blue?style=flat-square)](modules/file-transfer/README.md)
 [![Traefik](https://img.shields.io/badge/Traefik-reverse--proxy-24A1C1?style=flat-square&logo=traefikproxy&logoColor=white)](modules/reverse-proxy/README.md)
@@ -59,7 +59,7 @@ Set up your environment before applying any module:
 
 | Module | Technology | build-your-infra equivalent | Doc |
 |---|---|---|---|
-| Web Server | Nginx official image | Nginx + HTTPS + reverse proxy | [`modules/web-server/`](modules/web-server/README.md) |
+| Web Server | Custom image (Dockerfile) on Nginx unprivileged | Nginx + HTTPS + reverse proxy | [`modules/web-server/`](modules/web-server/README.md) |
 | File Transfer | atmoz/sftp | SFTP (OpenSSH subsystem) | [`modules/file-transfer/`](modules/file-transfer/README.md) |
 | DNS | BIND9 | BIND9 | [`modules/dns/`](modules/dns/README.md) |
 | Reverse Proxy | Traefik | Nginx proxy block | [`modules/reverse-proxy/`](modules/reverse-proxy/README.md) |

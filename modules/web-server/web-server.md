@@ -1,6 +1,6 @@
 # Web Server — containerize-your-infra
 
-**Docker Engine · nginxinc/nginx-unprivileged:stable-alpine**
+**Docker Engine · custom image (Dockerfile) on nginxinc/nginx-unprivileged:stable-alpine**
 
 ---
 
@@ -29,11 +29,12 @@ container hardening patterns that carry forward to every subsequent module.
 
 | Parameter    | Value                                                        |
 |--------------|--------------------------------------------------------------|
-| Image        | `nginxinc/nginx-unprivileged:stable-alpine`                  |
+| Base image   | `nginxinc/nginx-unprivileged:stable-alpine`                  |
+| Built image  | `web-server:local` (built from `Dockerfile`)                 |
 | Port         | 8080 → 8080 (HTTP)                                             |
 | TLS          | None — dev environment                                       |
-| Content      | Static HTML (lab index page)                                 |
-| Config mount | Bind mount (dev) — `configs/nginx/`                          |
+| Content      | Static HTML (lab index page), baked into the image           |
+| Config       | Copied at build time — `configs/nginx/`, `configs/html/`     |
 | Hardening    | Non-root user, `cap_drop: ALL`, read-only filesystem, tmpfs  |
 
 ---
@@ -92,63 +93,54 @@ the minimum viable write surface for this process.
 
 ---
 
-## Step 1 — Compose File and Container Hardening
+## Step 1 — Dockerfile and Container Hardening
 
 ### What was done
 
-The `docker-compose.yml` file defines the Nginx service using
-`nginxinc/nginx-unprivileged:stable-alpine`. The configuration and HTML
-content are mounted from the module's `configs/` folder using bind mounts —
-the dev pattern for fast iteration without rebuilding the image.
+The Nginx service is now built from a custom `Dockerfile` instead of running
+the official image with runtime bind mounts. The Dockerfile uses
+`nginxinc/nginx-unprivileged:stable-alpine` as its base and copies the Nginx
+configuration and static HTML into the image at build time.
 
-Container hardening is applied inline: the image runs entirely as a non-root
-user, all Linux capabilities are dropped, and the container filesystem is set
-to read-only. Three `tmpfs` mounts cover the paths Nginx requires to write
-at runtime (`/var/cache/nginx`, `/var/run`, `/tmp`).
+`docker-compose.yml` replaces the `image:` key with a `build:` block pointing
+to this directory. Container hardening remains identical to the previous
+approach: non-root execution, all capabilities dropped, read-only filesystem
+with `tmpfs` on the three paths Nginx writes to at runtime.
 
 ```bash
+docker compose build
+# → web-server  Built
+
 docker compose up -d
 ```
 
-📄 [`docker-compose.yml`](docker-compose.yml) — `docker compose up -d` from this directory
+📄 [`Dockerfile`](Dockerfile) — image build definition
+📄 [`docker-compose.yml`](docker-compose.yml) — `docker compose up -d --build` from this directory
 
 ### Why
 
-`nginxinc/nginx-unprivileged` is the rootless variant of the official Nginx
-image, maintained by Nginx Inc. Unlike `nginx:stable-alpine`, its entrypoint
-does not require `CHOWN`, `SETUID`, or `SETGID` to prepare the runtime
-environment — every process starts and stays as the `nginx` user (UID 101).
-This makes `cap_drop: ALL` viable without adding capabilities back, which is
-the correct hardening posture for a static file server.
+Building a custom image instead of consuming the official one as-is is a
+deliberate portfolio decision, not a functional requirement — the official
+image already covered this module's needs. Owning the build layer
+(`Dockerfile`, `docker build`) is a core Docker skill that bind mounts don't
+exercise, and it's more visible to anyone reviewing this repo.
 
-The `stable-alpine` tag keeps the same surface reduction benefits: Alpine base,
-no package manager in the final layer, and stable release branch.
-
-Bind mounts replace the `COPY` step you would use in a Dockerfile. In a VM
-you would `cp` the config to `/etc/nginx/` — in a container the equivalent is
-mounting the file directly from the host at the path Nginx expects. Changes
-to the source file on the host are reflected inside the container without a
-restart.
-
-`read_only: true` mounts the container root filesystem as read-only. Combined
-with `tmpfs` on the three paths Nginx writes to at runtime, any process that
-escapes the application layer cannot persist changes to the image filesystem.
+The base image stays `nginxinc/nginx-unprivileged` — switching to plain
+`nginx:stable-alpine` would mean re-adding capabilities (`CHOWN`, `SETUID`,
+`SETGID`) just to reach the same non-root posture already solved upstream.
+Keeping the rootless base preserves every hardening argument made in the
+previous version of this doc: no capabilities to drop back, `read_only: true`
++ `tmpfs` still cover the full write surface.
 
 ### Verification
 
 ```bash
 # Container is running
 docker compose ps
-# → NAME          IMAGE                                        STATUS
-# → web-server    nginxinc/nginx-unprivileged:stable-alpine   Up X seconds
+# → NAME          IMAGE               STATUS
+# → web-server    web-server:local    Up X seconds
 
 # Confirm all processes run as non-root
-docker compose exec web-server ps aux
-# → PID   USER     COMMAND
-# → 1     nginx    nginx: master process ...
-# → X     nginx    nginx: worker process
-
-# exec defaults to root — pass --user to confirm the runtime user
 docker compose exec --user nginx web-server whoami
 # → nginx
 
@@ -168,8 +160,9 @@ docker compose exec web-server touch /test
 ### What was done
 
 The default Nginx configuration is replaced with a minimal custom config
-scoped to this module. The file is mounted into the container at
-`/etc/nginx/nginx.conf` via the bind mount declared in Step 1.
+scoped to this module. Instead of a bind mount, the file is copied into the
+image at `/etc/nginx/nginx.conf` by the `Dockerfile` — any change to this
+file requires `docker compose up -d --build` to take effect.
 
 The config defines a single `server` block listening on port 8080, serving
 static files from `/usr/share/nginx/html`, with access and error logs
@@ -180,7 +173,7 @@ so it cannot bind to ports below 1024. Port 8080 is the correct internal
 listen port for this image — the host-side mapping (`8080:8080`) is adjusted
 accordingly in the Compose file.
 
-📄 [`configs/nginx/nginx.conf`](configs/nginx/nginx.conf) — mounted at `/etc/nginx/nginx.conf`
+📄 [`configs/nginx/nginx.conf`](configs/nginx/nginx.conf) — `COPY`'d into the image at build time
 
 ### Why
 
@@ -218,28 +211,30 @@ docker compose logs web-server
 
 ### What was done
 
-The lab index HTML file is mounted into the container at
-`/usr/share/nginx/html/index.html`, replacing the default Nginx welcome page.
-The file is served directly from the bind mount — no image rebuild required.
+The lab index HTML file is copied into the image at
+`/usr/share/nginx/html/index.html` by the `Dockerfile`, replacing the default
+Nginx welcome page. Unlike the bind mount approach, changes to this file
+require rebuilding the image.
 
-📄 [`configs/html/index.html`](configs/html/index.html) — mounted at `/usr/share/nginx/html/index.html`
+📄 [`configs/html/index.html`](configs/html/index.html) — `COPY`'d into the image at build time
 
 ### Why
 
 Replacing the default page removes the Nginx version disclosure embedded in
 the welcome page HTML and makes the running service identifiable as part of
 this lab. In build-your-infra the equivalent was `cp` to `/var/www/html/` —
-here the bind mount achieves the same result without touching the image layer.
+here the Dockerfile `COPY` achieves the same result, baked into the image
+instead of copied onto a running filesystem.
 
 ### Verification
-
+/
 ```bash
 # Page is served correctly
 curl http://localhost:8080
 # → (contents of configs/html/index.html)
 
 # Default Nginx page is not reachable
-curl http://localhost:8080 | grep -i "Welcome to nginx"
+curl -s http://localhost:8080 | grep -i "Welcome to nginx"
 # → (no output — default page is replaced)
 ```
 
@@ -269,7 +264,7 @@ to recover after `docker compose down`, the module is not complete.
 
 ```bash
 # Stop and remove the container
-docker compose down
+docker compose down -v
 
 # Confirm no container is running
 docker compose ps
@@ -295,21 +290,23 @@ docker inspect web-server --format '{{ .HostConfig.ReadonlyRootfs }}'
 ## Production deployment
 
 In production the module runs from `docker-compose.prod.yml` instead of
-`docker-compose.yml`. The image, hardening, and Nginx config are identical —
-what changes is the operational layer.
+`docker-compose.yml`. Both files now build from the same `Dockerfile` — the
+image, hardening, and Nginx config are identical between dev and prod.
+What changes is the operational layer.
+
+`docker-compose.prod.yml` replaces the `image:` key with the same `build:`
+block used in dev. Config files are no longer mounted at runtime in either
+environment — they are baked into the image at build time.
 
 | Parameter | dev | prod |
 |---|---|---|
-| Config mount (`nginx.conf`, `index.html`) | Bind mount | Bind mount `:ro` |
+| Image source | `build:` — local `docker compose build` | `build:` — local `docker compose build` |
+| Config (`nginx.conf`, `index.html`) | Baked into image at build time | Baked into image at build time |
 | Restart policy | `"no"` (default) | `unless-stopped` |
 | Healthcheck | None | `wget` on port 8080 |
 
-Config files are always mounted from the repository — read-only in prod to
-prevent any runtime modification. There are no persistent data volumes for
-this module: Nginx serves static content with no writable state.
-
 ```bash
-docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 📄 [`docker-compose.prod.yml`](docker-compose.prod.yml)
@@ -319,24 +316,31 @@ docker compose -f docker-compose.prod.yml up -d
 ```bash
 # -v removes named volumes — correct for lab testing, destructive with real data
 docker compose -f docker-compose.prod.yml down -v
-docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml up -d --build
 
 docker compose -f docker-compose.prod.yml ps
-# → NAME         STATUS
-# → web-server   Up X seconds (healthy)
+# → NAME         IMAGE               STATUS
+# → web-server   web-server:local    Up X seconds (healthy)
 
 # Confirm healthcheck is passing — wait ~10s after start_period
 docker inspect web-server --format '{{ .State.Health.Status }}'
 # → healthy
 
 # Confirm restart policy survives daemon restart
+# dev (macOS/OrbStack):
+orb restart -a
+# prod (Linux):
 sudo systemctl restart docker
+
 sleep 5
 docker ps
 # → web-server   Up X seconds
 
 curl -I http://localhost:8080
 # → HTTP/1.1 200 OK
+
+# Remove everything
+docker compose -f docker-compose.prod.yml down -v
 ```
 
 ---

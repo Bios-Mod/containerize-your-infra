@@ -1,5 +1,5 @@
 # Deploy to:   Ubuntu 24.04 LTS — EC2 t4g.micro or local VM
-# Apply:       docker compose -f docker-compose.prod.yml up -d
+# Apply:       docker compose -f docker-compose.prod.yml up -d --build
 # Module:      full-infra
 # Requires:    modules/web-server/configs/, modules/file-transfer/configs/,
 #              modules/dns/configs/, modules/reverse-proxy/configs/traefik/certs/
@@ -12,19 +12,25 @@ services:
 
   # ── Reverse Proxy ─────────────────────────────────────────────────────────
   traefik:
+
     image: traefik:v3.7
     container_name: traefik
+
     restart: unless-stopped
+
     ports:
       - "80:80"
       - "443:443"
+
     environment:
       - TRAEFIK_PROVIDERS_DOCKER_NETWORK=proxy-net
+
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ../../modules/reverse-proxy/configs/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - ../../modules/reverse-proxy/configs/traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
       - ../../modules/reverse-proxy/configs/traefik/certs:/etc/traefik/certs:ro
+
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.dashboard.rule=Host(`traefik.localhost`)"
@@ -32,65 +38,84 @@ services:
       - "traefik.http.routers.dashboard.service=api@internal"
       - "traefik.http.routers.dashboard.tls=true"
       - "traefik.http.routers.dashboard.middlewares=auth-dashboard@file"
+
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/ping"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
+
     networks:
       - proxy-net
 
   # ── Web Server ────────────────────────────────────────────────────────────
   web-server:
-    image: nginxinc/nginx-unprivileged:stable-alpine
+
+    build:
+      context: ../../modules/web-server
+      dockerfile: Dockerfile
+    image: web-server:local
+
     container_name: web-server
+
     restart: unless-stopped
-    volumes:
-      - ../../modules/web-server/configs/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ../../modules/web-server/configs/html/index.html:/usr/share/nginx/html/index.html:ro
+
     tmpfs:
       - /var/cache/nginx:uid=101,gid=101
       - /var/run:uid=101,gid=101
       - /tmp:uid=101,gid=101
+
     read_only: true
+
     cap_drop:
       - ALL
+
     security_opt:
       - no-new-privileges:true
+
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.web-server.rule=Host(`web.localhost`)"
       - "traefik.http.routers.web-server.entrypoints=websecure"
       - "traefik.http.routers.web-server.tls=true"
       - "traefik.http.services.web-server.loadbalancer.server.port=8080"
+
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
+
     networks:
       - proxy-net
 
 # ── File Transfer ─────────────────────────────────────────────────────────
   file-transfer:
+
     image: lscr.io/linuxserver/openssh-server:latest
     container_name: file-transfer
+
     restart: unless-stopped
+
     ports:
       - "2222:2222"
+
     environment:
       - USER_NAME=labuser
       - PASSWORD_ACCESS=false
       - PUBLIC_KEY_FILE=/config/labuser_ed25519.pub
+
     volumes:
       - ../../modules/file-transfer/configs/ssh/ssh_host_ed25519_key:/etc/ssh/ssh_host_ed25519_key
       - ../../modules/file-transfer/configs/ssh/ssh_host_rsa_key:/etc/ssh/ssh_host_rsa_key
       - ../../modules/file-transfer/configs/keys/labuser_ed25519.pub:/config/labuser_ed25519.pub:ro
       - file-transfer-data:/home/labuser/upload
+
     cap_drop:
       - ALL
+
     cap_add:
       - NET_BIND_SERVICE
       - CHOWN
@@ -99,26 +124,33 @@ services:
       - DAC_OVERRIDE
       - FOWNER
       - SYS_CHROOT
+
     healthcheck:
       test: ["CMD-SHELL", "netstat -lnt | grep :2222 || exit 1"]     
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 15s
+
     networks:
       - proxy-net
 
   # ── DNS ───────────────────────────────────────────────────────────────────
   dns:
+
     image: ubuntu/bind9:latest
     container_name: dns
+    
     restart: unless-stopped
+
     environment:
       - BIND9_USER=root
       - TZ=Etc/UTC
+
     ports:
       - "53:53/tcp"
       - "53:53/udp"
+
     volumes:
       - ../../modules/dns/configs/bind/named.conf:/etc/bind/named.conf:ro
       - ../../modules/dns/configs/bind/named.conf.options:/etc/bind/named.conf.options:ro
@@ -126,13 +158,16 @@ services:
       - ../../modules/dns/configs/bind/db.lab.local:/etc/bind/db.lab.local:ro
       - ../../modules/dns/configs/bind/db.172.20.0:/etc/bind/db.172.20.0:ro
       - dns-cache:/var/cache/bind
+
     command: ["-g"]
+
     healthcheck:
       test: ["CMD-SHELL", "pidof named || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 5s
+
     networks:
       proxy-net:
         ipv4_address: 172.21.0.10
