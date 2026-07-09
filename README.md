@@ -2,6 +2,7 @@
 
 # containerize-your-infra — Docker Infrastructure Lab
 
+[![CI](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/full-infra.yml/badge.svg)](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/full-infra.yml)
 [![Docker](https://img.shields.io/badge/Nginx-custom%20image-009639?style=flat-square&logo=docker&logoColor=white)](modules/web-server/README.md)
 [![BIND9](https://img.shields.io/badge/BIND9-DNS-informational?style=flat-square)](modules/dns/README.md)
 [![SFTP](https://img.shields.io/badge/SFTP-file--transfer-blue?style=flat-square)](modules/file-transfer/README.md)
