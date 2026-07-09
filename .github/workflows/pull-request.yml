@@ -1,0 +1,40 @@
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  detect-changes:
+    # dorny/paths-filter@v3
+    # outputs: web-server, file-transfer, dns, reverse-proxy (booleans)
+
+  validate-web-server:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.web-server == 'true'
+    # docker/setup-buildx-action@v3
+    # docker build
+
+  validate-file-transfer:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.file-transfer == 'true'
+    # docker compose config
+
+  validate-dns:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.dns == 'true'
+    # docker compose config
+
+  validate-reverse-proxy:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.reverse-proxy == 'true'
+    # docker compose config
+
+  validate-full-infra:
+    needs: detect-changes
+    # always runs, no if: condition
+    # docker compose config + docker compose build (full stack context)
+
+  summary:
+    needs: [validate-web-server, validate-file-transfer, validate-dns, validate-reverse-proxy, validate-full-infra]
+    if: always()
+    # actions/github-script@v7
+    # writes pass/fail table as PR comment or job summary

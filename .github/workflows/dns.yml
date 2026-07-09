@@ -1,0 +1,40 @@
+# Deploy to:   GitHub Actions runner
+# Apply:       automatic on push (paths filter)
+# Module:      dns
+# Requires:    none
+#
+# Validates the DNS module Compose file — syntax check and image resolution.
+# No custom build: BIND9 uses the official image.
+# Parameters modified from baseline: none
+
+name: dns
+
+on:
+  push:
+    branches: [ main, actions-implementation ]
+    paths:
+      - "modules/dns/**"
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+
+    steps: 
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Validate docker-compose syntax
+        working-directory: modules/dns
+        run: docker compose -f docker-compose.yml config
+
+      - name: Validate docker-compose.prod syntax
+        working-directory: modules/dns
+        run: docker compose -f docker-compose.prod.yml config
+      
+      - name: Pull image to confirm reference is valid (dev)
+        working-directory: modules/dns
+        run: docker compose -f docker-compose.yml pull
+
+      - name: Pull image to confirm reference is valid (prod)
+        working-directory: modules/dns
+        run: docker compose -f docker-compose.prod.yml pull

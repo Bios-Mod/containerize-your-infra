@@ -83,55 +83,75 @@ See [`stacks/full-infra/automation.md`](stacks/full-infra/automation.md) for the
 
 ---
 
+## Continuous Integration
+
+Every module and the full stack are validated automatically on push via GitHub
+Actions. Each module triggers its own workflow scoped by a `paths` filter — no
+monolithic pipeline runs on every push to the repo.
+
+| Workflow | Scope | Validates |
+|---|---|---|
+| `web-server.yml` | `modules/web-server/**` | `docker build` (custom image) |
+| `file-transfer.yml` | `modules/file-transfer/**` | `docker compose config` |
+| `dns.yml` | `modules/dns/**` | `docker compose config` |
+| `reverse-proxy.yml` | `modules/reverse-proxy/**` | `docker compose config` |
+| `full-infra.yml` | `stacks/full-infra/**` | Full stack `compose config` + build, Terraform `fmt`/`validate` |
+| `pull-request.yml` | `pull_request` → `main` | Multi-module diff validation + PR summary |
+
+See [`continuous-integration.md`](continuous-integration.md) for the full
+implementation and design decisions.
+
+---
+
 ## Repository Structure
 
 ```bash
 containerize-your-infra/
 ├── AGENTS.md
-├── CONTRIBUTING.md
-├── LICENSE
-├── README.md
 ├── banner.png
 ├── context
 │   ├── current-iteration.md
 │   └── decisions-log.md
+├── CONTRIBUTING.md
 ├── environments
-│   ├── README.md
 │   ├── dev
 │   │   └── setup.md
-│   └── prod
-│       └── setup.md
+│   ├── prod
+│   │   └── setup.md
+│   └── README.md
+├── LICENSE
 ├── modules
 │   ├── dns
-│   │   ├── README.md
 │   │   ├── configs
 │   │   ├── dns.md
 │   │   ├── docker-compose.prod.yml
-│   │   └── docker-compose.yml
+│   │   ├── docker-compose.yml
+│   │   └── README.md
 │   ├── file-transfer
-│   │   ├── README.md
 │   │   ├── configs
 │   │   ├── data
 │   │   ├── docker-compose.prod.yml
 │   │   ├── docker-compose.yml
-│   │   └── file-transfer.md
+│   │   ├── file-transfer.md
+│   │   └── README.md
 │   ├── reverse-proxy
-│   │   ├── README.md
 │   │   ├── configs
 │   │   ├── docker-compose.prod.yml
 │   │   ├── docker-compose.yml
+│   │   ├── README.md
 │   │   └── reverse-proxy.md
 │   └── web-server
-│       ├── README.md
 │       ├── configs
 │       ├── docker-compose.prod.yml
 │       ├── docker-compose.yml
+│       ├── README.md
 │       └── web-server.md
+├── README.md
 └── stacks
     └── full-infra
-        ├── README.md
         ├── automation
         ├── automation.md
         ├── docker-compose.prod.yml
-        └── full-infra.md
+        ├── full-infra.md
+        └── README.md
 ```
