@@ -1,0 +1,39 @@
+# Deploy to:   GitHub Actions runner
+# Apply:       automatic on push (paths filter)
+# Module:      reverse-proxy
+# Requires:    none
+#
+# Validates the reverse-proxy module Compose file — syntax check and image
+# resolution. No custom build: Traefik uses the official image.
+# Parameters modified from baseline: none
+
+name: reverse-proxy
+
+on:
+  push:
+    branches: actions-implementation
+    paths:
+      - "modules/reverse-proxy/**"
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04-arm
+    defaults:
+      run:
+        working-directory: modules/reverse-proxy
+
+    steps: 
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Validate docker-compose syntax
+        run: docker compose -f docker-compose.yml config
+
+      - name: Validate docker-compose.prod syntax
+        run: docker compose -f docker-compose.prod.yml config
+      
+      - name: Pull image to confirm reference is valid (dev)
+        run: docker compose -f docker-compose.yml pull
+
+      - name: Pull image to confirm reference is valid (prod)
+        run: docker compose -f docker-compose.prod.yml pull

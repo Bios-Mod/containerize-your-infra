@@ -1,0 +1,58 @@
+# Deploy to:   GitHub Actions runner
+# Apply:       automatic on push (paths filter)
+# Module:      full-infra
+# Requires:    none
+#
+# Two independent jobs: Compose stack validation (config + build in stack
+# context) and Terraform static checks (fmt + validate, no AWS credentials).
+# Parameters modified from baseline: none
+
+name: full-infra
+
+on:
+  push:
+    branches: actions-implementation
+    paths:
+      - "stacks/full-infra/**"
+
+jobs:
+  compose:
+    runs-on: ubuntu-24.04-arm
+    defaults:
+      run:
+        working-directory: stacks/full-infra
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Validate full stack compose syntax
+        run: docker compose -f docker-compose.prod.yml config
+
+      - name: Build full stack (validates web-server build in stack context)
+        run: docker compose -f docker-compose.prod.yml build
+
+  terraform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: stacks/full-infra/automation/terraform
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+
+      - name: Terraform format check
+        run: terraform fmt -check
+
+      - name: Terraform init (backend-less, no credentials)
+        run: terraform init -backend=false
+
+      - name: Terraform validate
+        run: terraform validate
