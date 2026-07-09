@@ -2,8 +2,13 @@
 
 # containerize-your-infra — Docker Infrastructure Lab
 
+[![Web Server CI](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/web-server.yml/badge.svg)](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/web-server.yml)
+[![File Transfer CI](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/file-transfer.yml/badge.svg)](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/file-transfer.yml)
+[![DNS CI](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/dns.yml/badge.svg)](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/dns.yml)
+[![Reverse Proxy CI](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/reverse-proxy.yml/badge.svg)](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/reverse-proxy.yml)
+[![Full Infra CI](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/full-infra.yml/badge.svg)](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/full-infra.yml)
 [![Pull Request CI](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/pull-request.yml/badge.svg)](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/pull-request.yml)
-[![CI](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/full-infra.yml/badge.svg)](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/full-infra.yml)
+
 [![Docker](https://img.shields.io/badge/Nginx-custom%20image-009639?style=flat-square&logo=docker&logoColor=white)](modules/web-server/README.md)
 [![BIND9](https://img.shields.io/badge/BIND9-DNS-informational?style=flat-square)](modules/dns/README.md)
 [![SFTP](https://img.shields.io/badge/SFTP-file--transfer-blue?style=flat-square)](modules/file-transfer/README.md)
