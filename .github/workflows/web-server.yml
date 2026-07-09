@@ -18,9 +18,6 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-24.04-arm
-    defaults:
-      run:
-        working-directory: modules/web-server
 
     steps: 
       - name: Checkout repository
