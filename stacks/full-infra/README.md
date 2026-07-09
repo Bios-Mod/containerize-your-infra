@@ -10,11 +10,6 @@ on a shared Docker network (`proxy-net`).
 |---|---|
 | prod | [`full-infra.md`](full-infra.md) |
 
-```bash
-cd stacks/full-infra
-docker compose -f docker-compose.prod.yml up -d
-```
-
 ## Automation
 
 The host running this stack is provisioned with Terraform. A single plan

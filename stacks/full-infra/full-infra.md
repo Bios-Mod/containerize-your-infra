@@ -35,7 +35,7 @@ and does not go through Traefik.
 | Service | Image | Ports (host) | Network role |
 |---|---|---|---|
 | `traefik` | `traefik:v3.7` | `80`, `443` | HTTP/S ingress, TLS termination |
-| `web-server` | `nginxinc/nginx-unprivileged:stable-alpine` | none | Backend, internal only |
+| `web-server` | Custom build (`web-server:local`) on `nginxinc/nginx-unprivileged` | none | Backend, internal only |
 | `file-transfer` | `lscr.io/linuxserver/openssh-server:latest` | `2222` | SFTP, direct access |
 | `dns` | `ubuntu/bind9:latest` | `53 TCP/UDP` | Resolver + authoritative zone |
 
@@ -49,6 +49,8 @@ and does not go through Traefik.
 Confirm that each module's configs are in place:
 
 ```bash
+cd containerize-your-infra/
+
 # TLS certificates (required by Traefik at startup)
 ls modules/reverse-proxy/configs/traefik/certs/
 # → lab.crt  lab.key
@@ -62,6 +64,9 @@ ls modules/file-transfer/configs/ssh/
 # → ssh_host_ed25519_key  ssh_host_rsa_key
 
 # SSH host keys — permissions must be 600 (sshd rejects keys readable by others)
+# macOS/BSD:
+stat -f "%OLp %N" modules/file-transfer/configs/ssh/ssh_host_ed25519_key modules/file-transfer/configs/ssh/ssh_host_rsa_key
+# Linux (prod/EC2):
 stat -c "%a %n" modules/file-transfer/configs/ssh/ssh_host_ed25519_key modules/file-transfer/configs/ssh/ssh_host_rsa_key
 # → 600 modules/file-transfer/configs/ssh/ssh_host_ed25519_key
 # → 600 modules/file-transfer/configs/ssh/ssh_host_rsa_key
@@ -71,6 +76,7 @@ stat -c "%a %n" modules/file-transfer/configs/ssh/ssh_host_ed25519_key modules/f
 > permissions `600` before deploying. If they are `644`, `sshd` inside the
 > container will ignore them, generate its own keys, and reject client
 > connections silently.
+
 > ```bash
 > sudo chmod 600 modules/file-transfer/configs/ssh/ssh_host_ed25519_key
 > sudo chmod 600 modules/file-transfer/configs/ssh/ssh_host_rsa_key
@@ -81,7 +87,7 @@ stat -c "%a %n" modules/file-transfer/configs/ssh/ssh_host_ed25519_key modules/f
 ls modules/dns/configs/bind/
 # → named.conf  named.conf.options  named.conf.local  db.lab.local  db.172.20.0
 
-# Nginx config and HTML
+# Nginx config and HTML — required at build time (Dockerfile COPY), not runtime mount
 ls modules/web-server/configs/nginx/ modules/web-server/configs/html/
 # → nginx.conf
 # → index.html
@@ -120,9 +126,13 @@ The full stack is deployed from `stacks/full-infra/` using the unified
 Named volumes for persistent data (`file-transfer-data`, `dns-cache`)
 are created automatically on first run.
 
+`web-server` is built from its `Dockerfile` on first `up` — Docker Compose
+builds the image automatically if it doesn't exist locally, or you can force
+a rebuild with `--build`.
+
 ```bash
 cd stacks/full-infra
-docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 📄 [`docker-compose.prod.yml`](docker-compose.prod.yml)
@@ -149,6 +159,10 @@ The `TRAEFIK_PROVIDERS_DOCKER_NETWORK` environment variable overrides the
 contacts backends through `proxy-net` regardless of what the static
 `traefik.yml` specifies — necessary when the same `traefik.yml` is shared
 between the standalone module and this full-stack compose.
+
+`web-server`'s `build.context` points to `../../modules/web-server` — the
+Dockerfile and its `COPY` paths resolve relative to that directory, not to
+`stacks/full-infra/` where this compose file lives.
 
 ### Verification
 
@@ -229,7 +243,8 @@ dig @127.0.0.1 google.com +short
 ssh -p 2222 -o StrictHostKeyChecking=no labuser@127.0.0.1 \
   -i ../../modules/file-transfer/configs/keys/labuser_ed25519 exit
 
-# → (connection closes cleanly — exit code 0)
+# Warning: Permanently added '[127.0.0.1]:2222' (ED25519) to the list of known hosts.
+# (connection closes cleanly — exit code 0)
 ```
 
 ---
@@ -254,7 +269,7 @@ deleted unless `down -v` is explicitly passed.
 
 ```bash
 # Bring the stack down (named volumes are preserved without -v , if you want to destroy everything use -v flag)
-docker compose -f docker-compose.prod.yml down 
+docker compose -f docker-compose.prod.yml down
 
 # Confirm volumes survived
 docker volume ls | grep -E "file-transfer-data|dns-cache"
