@@ -105,6 +105,8 @@ jobs:
     needs: [validate-web-server, validate-file-transfer, validate-dns, validate-reverse-proxy, validate-full-infra]
     if: always()
     runs-on: ubuntu-24.04-arm
+    permissions:
+      pull-requests: write
     steps:
       - uses: actions/github-script@v9
         with:
