@@ -1,0 +1,8 @@
+# Deploy to:   GitHub Actions runner
+# Apply:       automatic on push (paths filter)
+# Module:      full-infra
+# Requires:    none
+#
+# Two independent jobs: Compose stack validation (config + build in stack
+# context) and Terraform static checks (fmt + validate, no AWS credentials).
+# Parameters modified from baseline: none

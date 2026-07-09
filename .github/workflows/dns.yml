@@ -18,23 +18,22 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-24.04
+    defaults:
+      run: 
+        working-directory: modules/dns
 
     steps: 
       - name: Checkout repository
         uses: actions/checkout@v7
 
       - name: Validate docker-compose syntax
-        working-directory: modules/dns
         run: docker compose -f docker-compose.yml config
 
       - name: Validate docker-compose.prod syntax
-        working-directory: modules/dns
         run: docker compose -f docker-compose.prod.yml config
       
       - name: Pull image to confirm reference is valid (dev)
-        working-directory: modules/dns
         run: docker compose -f docker-compose.yml pull
 
       - name: Pull image to confirm reference is valid (prod)
-        working-directory: modules/dns
         run: docker compose -f docker-compose.prod.yml pull

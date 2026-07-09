@@ -1,0 +1,8 @@
+# Deploy to:   GitHub Actions runner
+# Apply:       automatic on push (paths filter)
+# Module:      web-server
+# Requires:    none
+#
+# Builds the custom web-server image (Dockerfile) — validates that the build
+# succeeds in isolation before any integration with the full stack.
+# Parameters modified from baseline: none

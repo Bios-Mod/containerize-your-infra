@@ -1,3 +1,13 @@
+# Deploy to:   GitHub Actions runner
+# Apply:       automatic on pull_request to main
+# Module:      full-infra (cross-module)
+# Requires:    none
+#
+# Detects changed module paths in the PR diff and runs the corresponding
+# validation jobs conditionally. Full-infra validation always runs. Writes
+# a per-module pass/fail summary into the PR.
+# Parameters modified from baseline: none
+
 on:
   pull_request:
     branches: [main]

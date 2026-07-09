@@ -1,0 +1,39 @@
+# Deploy to:   GitHub Actions runner
+# Apply:       automatic on push (paths filter)
+# Module:      file-transfer
+# Requires:    none
+#
+# Validates the file-transfer module Compose file — syntax check and image
+# resolution. No custom build: atmoz/sftp uses the official image.
+# Parameters modified from baseline: none
+
+name: file-transfer
+
+on:
+  push:
+    branches: actions-implementation
+    paths:
+      - "modules/file-transfer/**"
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: modules/file-transfer
+
+    steps: 
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Validate docker-compose syntax
+        run: docker compose -f docker-compose.yml config
+
+      - name: Validate docker-compose.prod syntax
+        run: docker compose -f docker-compose.prod.yml config
+      
+      - name: Pull image to confirm reference is valid (dev)
+        run: docker compose -f docker-compose.yml pull
+
+      - name: Pull image to confirm reference is valid (prod)
+        run: docker compose -f docker-compose.prod.yml pull
