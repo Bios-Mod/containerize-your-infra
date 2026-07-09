@@ -6,3 +6,32 @@
 # Builds the custom web-server image (Dockerfile) — validates that the build
 # succeeds in isolation before any integration with the full stack.
 # Parameters modified from baseline: none
+
+name: web-server
+
+on:
+  push:
+    branches: actions-implementation
+    paths:
+      - "modules/web-server/**"
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04-arm
+    defaults:
+      run:
+        working-directory: modules/web-server
+
+    steps: 
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build custom web-server image
+        uses: docker/build-push-action@v7
+        with:
+          context: modules/web-server
+          push: false
+          tags: web-server:ci

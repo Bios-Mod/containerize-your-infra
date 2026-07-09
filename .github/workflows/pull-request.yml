@@ -8,43 +8,121 @@
 # a per-module pass/fail summary into the PR.
 # Parameters modified from baseline: none
 
+name: pull-request
+
 on:
   pull_request:
     branches: [main]
 
 jobs:
   detect-changes:
-    # dorny/paths-filter@v3
-    # outputs: web-server, file-transfer, dns, reverse-proxy (booleans)
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      web-server: ${{ steps.filter.outputs.web-server }}
+      file-transfer: ${{ steps.filter.outputs.file-transfer }}
+      dns: ${{ steps.filter.outputs.dns }}
+      reverse-proxy: ${{ steps.filter.outputs.reverse-proxy }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            web-server:
+              - 'modules/web-server/**'
+            file-transfer:
+              - 'modules/file-transfer/**'
+            dns:
+              - 'modules/dns/**'
+            reverse-proxy:
+              - 'modules/reverse-proxy/**'
 
   validate-web-server:
     needs: detect-changes
     if: needs.detect-changes.outputs.web-server == 'true'
-    # docker/setup-buildx-action@v3
-    # docker build
+    runs-on: ubuntu-24.04-arm
+    defaults:
+      run:
+        working-directory: modules/web-server
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: modules/web-server
+          push: false
+          tags: web-server:pr
 
   validate-file-transfer:
     needs: detect-changes
     if: needs.detect-changes.outputs.file-transfer == 'true'
-    # docker compose config
+    runs-on: ubuntu-24.04-arm
+    defaults:
+      run:
+        working-directory: modules/file-transfer
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker compose -f docker-compose.yml config
+      - run: docker compose -f docker-compose.prod.yml config
 
   validate-dns:
     needs: detect-changes
     if: needs.detect-changes.outputs.dns == 'true'
-    # docker compose config
+    runs-on: ubuntu-24.04-arm
+    defaults:
+      run:
+        working-directory: modules/dns
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker compose -f docker-compose.yml config
+      - run: docker compose -f docker-compose.prod.yml config
 
   validate-reverse-proxy:
     needs: detect-changes
     if: needs.detect-changes.outputs.reverse-proxy == 'true'
-    # docker compose config
+    runs-on: ubuntu-24.04-arm
+    defaults:
+      run:
+        working-directory: modules/reverse-proxy
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker compose -f docker-compose.yml config
+      - run: docker compose -f docker-compose.prod.yml config
 
   validate-full-infra:
     needs: detect-changes
-    # always runs, no if: condition
-    # docker compose config + docker compose build (full stack context)
+    runs-on: ubuntu-24.04-arm
+    defaults:
+      run:
+        working-directory: stacks/full-infra
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - run: docker compose -f docker-compose.prod.yml config
+      - run: docker compose -f docker-compose.prod.yml build
 
   summary:
     needs: [validate-web-server, validate-file-transfer, validate-dns, validate-reverse-proxy, validate-full-infra]
     if: always()
-    # actions/github-script@v7
-    # writes pass/fail table as PR comment or job summary
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const results = {
+              "web-server": "${{ needs.validate-web-server.result }}",
+              "file-transfer": "${{ needs.validate-file-transfer.result }}",
+              "dns": "${{ needs.validate-dns.result }}",
+              "reverse-proxy": "${{ needs.validate-reverse-proxy.result }}",
+              "full-infra": "${{ needs.validate-full-infra.result }}"
+            };
+            let body = "### CI Summary\n\n| Module | Result |\n|---|---|\n";
+            for (const [mod, res] of Object.entries(results)) {
+              body += `| ${mod} | ${res} |\n`;
+            }
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
