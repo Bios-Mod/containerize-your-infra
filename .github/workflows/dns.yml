@@ -11,7 +11,7 @@ name: dns
 
 on:
   push:
-    branches: [ main, actions-implementation ]
+    branches: actions-implementation
     paths:
       - "modules/dns/**"
 

@@ -28,6 +28,8 @@ modules/reverse-proxy/configs/traefik/certs/*
 *.tfstate.*
 terraform.tfvars
 *.tfvars.json
+stacks/full-infra/automation/terraform/main.tf
+stacks/full-infra/automation/terraform/outputs.tf
 
 # Terraform — lock file for local execution state
 .terraform.tfstate.lock.info
