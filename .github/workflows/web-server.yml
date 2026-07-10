@@ -11,7 +11,7 @@ name: web-server
 
 on:
   push:
-    branches: actions-implementation
+    branches: main
     paths:
       - "modules/web-server/**"
 

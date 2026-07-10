@@ -11,7 +11,7 @@ name: reverse-proxy
 
 on:
   push:
-    branches: actions-implementation
+    branches: main
     paths:
       - "modules/reverse-proxy/**"
 

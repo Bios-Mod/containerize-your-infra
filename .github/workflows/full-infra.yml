@@ -11,7 +11,7 @@ name: full-infra
 
 on:
   push:
-    branches: actions-implementation
+    branches: main
     paths:
       - "stacks/full-infra/**"
 
