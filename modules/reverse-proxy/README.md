@@ -8,7 +8,7 @@ termination and a protected dashboard.
 
 | Environment | Technology | Doc |
 |---|---|---|
-| dev | Traefik v3 + Nginx backend | [reverse-proxy.md](reverse-proxy.md) |
-| prod | Traefik v3 + Nginx backend | [reverse-proxy.md](reverse-proxy.md) |
+| dev | Traefik v3 + Nginx backend | [docker/reverse-proxy-docker.md](docker/reverse-proxy-docker.md) |
+| prod | Traefik v3 + Nginx backend | [docker/reverse-proxy-docker.md](docker/reverse-proxy-docker.md) |
 
 **Infrastructure & AWS native equivalent:** [`modules/web-server`](https://github.com/Bios-Mod/build-your-infra/tree/main/modules/web-server)

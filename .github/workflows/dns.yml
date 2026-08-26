@@ -13,27 +13,29 @@ on:
   push:
     branches: main
     paths:
-      - "modules/dns/**"
+      - "modules/dns/docker/**"
+      - "modules/dns/README.md"
+      - ".github/workflows/dns.yml"
 
 jobs:
   validate:
     runs-on: ubuntu-24.04-arm
     defaults:
-      run: 
-        working-directory: modules/dns
+      run:
+        working-directory: modules/dns/docker/
 
-    steps: 
+    steps:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Validate docker-compose syntax
+      - name: Validate development Compose syntax
         run: docker compose -f docker-compose.yml config
 
-      - name: Validate docker-compose.prod syntax
+      - name: Validate production Compose syntax
         run: docker compose -f docker-compose.prod.yml config
-      
-      - name: Pull image to confirm reference is valid (dev)
+
+      - name: Pull development image
         run: docker compose -f docker-compose.yml pull
 
-      - name: Pull image to confirm reference is valid (prod)
+      - name: Pull production image
         run: docker compose -f docker-compose.prod.yml pull

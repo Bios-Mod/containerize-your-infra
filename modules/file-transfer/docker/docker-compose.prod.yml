@@ -8,20 +8,21 @@
 
 services:
   file-transfer:
+    image: atmoz/sftp:alpine
+    platform: linux/amd64
     container_name: file-transfer
-    image: lscr.io/linuxserver/openssh-server:latest
     ports:
       - "2222:22"
-    environment:
-      - SFTP_USERS=labuser::1001::upload
     volumes:
       # Host keys — no :ro, entrypoint enforces chmod at startup
       - ./configs/ssh/ssh_host_ed25519_key:/etc/ssh/ssh_host_ed25519_key
       - ./configs/ssh/ssh_host_rsa_key:/etc/ssh/ssh_host_rsa_key
       # Client public key — read-only, no runtime writes needed
       - ./configs/keys/labuser_ed25519.pub:/home/labuser/.ssh/keys/labuser_ed25519.pub:ro
-      # Upload data — named volume, survives container replacement
+      # Upload data — named volume, survives container replacement      
       - file-transfer-data:/home/labuser/upload
+    environment:
+      SFTP_USERS: "labuser::1001::upload"
     cap_drop:
       - ALL
     cap_add:

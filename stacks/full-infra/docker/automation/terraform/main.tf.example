@@ -1,6 +1,6 @@
 # Deploy to:   AWS eu-west-1
 # Apply:       terraform init → terraform plan → terraform apply
-# Module:      stacks/full-infra/automation/terraform
+# Module:      stacks/full-infra/docker/automation/terraform
 # Requires:    terraform.tfvars (copy from terraform.tfvars.example)
 #
 # Provisions the EC2 host for the full-infra stack.

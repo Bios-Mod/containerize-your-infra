@@ -8,7 +8,8 @@
 
 services:
   dns:
-    image: ubuntu/bind9:latest
+    image: internetsystemsconsortium/bind9:9.20
+    platform: linux/amd64
     container_name: dns
     environment:
       - BIND9_USER=root

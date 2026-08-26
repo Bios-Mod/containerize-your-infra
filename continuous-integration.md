@@ -1,6 +1,6 @@
 # Continuous Integration
 
-**GitHub Actions · Per-module workflows · containerize-your-infra**
+**GitHub Actions · Per-module Docker workflows · containerize-your-infra**
 
 ---
 
@@ -8,94 +8,119 @@
 
 This document covers the CI layer of the repository: automated validation
 triggered on every push and pull request, implemented with GitHub Actions.
-CI does not deploy anything — it validates that Docker Compose files, the
-custom Dockerfile, and the Terraform plan are all correct before a human
-merges to `main`.
+
+CI does not deploy anything. It validates Docker Compose files, the custom
+Dockerfile, image references, and Docker/EC2 Terraform syntax before a human
+merges changes to `main`.
 
 CI complements the automation layer documented in
-[`stacks/full-infra/automation.md`](stacks/full-infra/automation.md).
-Terraform provisions infrastructure; Docker Compose runs services; GitHub
-Actions verifies that both are correct on every change.
+[`stacks/full-infra/docker/automation.md`](stacks/full-infra/docker/automation.md).
+Terraform provisions the Docker/EC2 infrastructure layer; Docker Compose runs
+services; GitHub Actions verifies the repository artefacts that define both.
+
+---
+
+## Runtime scope
+
+CI currently validates the Docker runtime only.
+
+Docker workflows validate Compose configuration, Docker image builds, image
+references, and Docker/EC2 Terraform syntax. Kubernetes validation will be
+added incrementally when Helm charts and EKS Terraform exist and have a
+functional implementation to validate.
+
+Kubernetes CI will not replace Docker CI. Each runtime will keep independent
+path filters and validation jobs so that Docker changes do not trigger Helm
+validation, and Kubernetes changes do not trigger Compose builds.
 
 ---
 
 ## Design decisions
 
-**Per-module workflows, not a monolithic pipeline.** Each module in
-`modules/` triggers its own workflow using a `paths` filter. A change to
-`modules/dns/**` only runs the DNS workflow — it does not trigger file-transfer,
-reverse-proxy, or web-server checks. This avoids unnecessary compute and keeps
-CI responsibility scoped to the module that changed, the same way each module
-is independently deployable in this repo.
+**Per-module Docker workflows, not a monolithic pipeline.** Each Docker module
+triggers its own workflow using a runtime-specific `paths` filter. A change to
+`modules/dns/docker/**` runs the DNS Docker workflow; it does not trigger
+file-transfer, reverse-proxy, web-server, or future Kubernetes checks. This
+avoids unnecessary compute and keeps CI responsibility scoped to the runtime
+and module that changed, the same way each module is independently deployable
+in this repository.
 
 **`paths` is an event-level gate, not a job conditional.** GitHub evaluates the
-`paths` filter against the diff of a push or PR before deciding whether to run
-the workflow at all. If there is no match, the workflow does not start — it is
-not skipped, it never triggers. This is different from an `if:` condition
-inside a job, which runs after the workflow has already started.
+`paths` filter against the diff of a push or pull request before deciding
+whether to run the workflow at all. If there is no match, the workflow does not
+start — it is not skipped, it never triggers. This is different from an `if:`
+condition inside a job, which runs after the workflow has already started.
 
-**Official-image modules validate config, not build.** `file-transfer`, `dns`,
-and `reverse-proxy` use official images — there is nothing to build. Their
-workflows run `docker compose config` (syntax and variable resolution) and
-`docker compose pull` (confirms the image reference is valid). This is
-appropriate for a lab; a production pipeline would add integration tests
-against a running container.
+**Official-image modules validate configuration, not builds.**
+`file-transfer`, `dns`, and `reverse-proxy` use published images — there is no
+Dockerfile in those modules to build. Their workflows run `docker compose
+config` for syntax and variable resolution, and `docker compose pull` to
+confirm that image references are valid. This is appropriate for the current
+lab scope; a production pipeline could add integration tests against running
+containers.
 
 **`web-server` builds its custom image.** This is the only module with a
-Dockerfile (see `decisions-log.md` — portfolio decision). Its workflow runs an
-actual `docker build`, because a broken Dockerfile is a real failure mode that
-config validation alone would not catch.
+Dockerfile, justified as a portfolio decision in `decisions-log.md`. Its
+workflow runs an actual Docker build because a broken Dockerfile is a failure
+mode that Compose configuration validation alone cannot detect.
 
-**`full-infra.yml` is one workflow with multiple jobs, not multiple files.**
-The full stack has two independent things to validate — the Compose layer and
-the Terraform layer — but they belong to the same stack and the same trigger
-scope (`stacks/full-infra/**`). Splitting them into separate files would be
-fragmentation without benefit. Both jobs run in the same workflow.
+**`full-infra.yml` validates the integrated Docker runtime.** The workflow has
+two independent jobs: full-stack Docker Compose validation and Docker/EC2
+Terraform validation. It triggers on changes under
+`stacks/full-infra/docker/**`, any `modules/**/docker/**` path, or its own
+workflow file.
 
-- **Compose job:** validates `docker compose config` against the full stack
-  and re-runs `docker compose build` in the stack's own context. This is
-  deliberate: web-server's Dockerfile is already validated in isolation by
-  `web-server.yml`, but build behavior can differ when invoked from a
-  different working directory or build context. Re-running it here confirms
-  the build succeeds in the actual context the stack uses.
-- **Terraform job:** runs `terraform fmt -check` and `terraform validate`
-  against `stacks/full-infra/automation/terraform/`. Both commands require no
-  AWS credentials and no state access — they check formatting and internal
-  syntax only.
+- **Compose job:** validates `docker compose config` against the full stack and
+  runs `docker compose build` in the stack integration context. The
+  web-server Dockerfile is already validated in isolation by `web-server.yml`,
+  but build behaviour can differ when it is invoked through the full-stack
+  Compose file. Re-running the build here confirms that the integrated Docker
+  stack remains valid.
+- **Terraform job:** runs `terraform fmt -check`, `terraform init
+  -backend=false`, and `terraform validate` against
+  `stacks/full-infra/docker/automation/terraform/`. These checks validate
+  formatting, provider/module initialization without a remote backend, and
+  internal Terraform configuration syntax. They do not create, modify, or
+  inspect AWS resources.
 
 **`terraform plan` is explicitly excluded from CI.** Running `plan` requires
-AWS credentials as a GitHub Secret, which raises the exposure surface of the
-repository for a check that is not required to validate correctness of the
-`.tf` files themselves. `plan` remains a manual step, run locally before
-`apply`, as documented in `automation.md`. This mirrors the same discipline
-already applied to `terraform.tfvars` — no credentials committed, no
-credentials in CI, unless explicitly justified.
+AWS credentials and may require access to the configured state backend. That
+would add secrets and cloud access to CI for a check that is not required to
+validate the Terraform configuration itself. `terraform plan` remains a manual
+step before `apply`, as documented in `automation.md`. This follows the same
+discipline applied to `terraform.tfvars`: no credentials committed and no
+credentials exposed to CI unless explicitly justified.
 
 **No Docker Hub authentication by default.** GitHub-hosted runners can hit
-Docker Hub's anonymous pull rate limit since runner IPs are shared across 
-many concurrent jobs. This repo does not pre-configure
-a `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` secret pair. If workflows start
-failing with `429 Too Many Requests`, authentication is added reactively —
-not as a preventive default that manages a secret with no proven need.
+Docker Hub anonymous pull rate limits because runner IP addresses are shared
+across many concurrent jobs. This repository does not pre-configure a
+`DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` secret pair. If workflows begin to
+fail with `429 Too Many Requests`, authentication can be added reactively — not
+as a preventive default that manages a secret without a demonstrated need.
 
 ---
 
 ## Workflow structure
 
-```bash
+```text
 .github/workflows/
-├── web-server.yml       # build custom image
-├── file-transfer.yml    # compose config validation
-├── dns.yml               # compose config validation
-├── reverse-proxy.yml    # compose config validation
-├── full-infra.yml        # compose build + terraform fmt/validate (2 jobs)
-└── pull-request.yml      # multi-module diff validation + PR summary (6 jobs)
+├── web-server.yml       # Builds the custom Docker image
+├── file-transfer.yml    # Validates Docker Compose configuration and image references
+├── dns.yml              # Validates Docker Compose configuration and image references
+├── reverse-proxy.yml    # Validates Docker Compose configuration and image references
+├── full-infra.yml       # Validates integrated Compose and Docker/EC2 Terraform
+└── pull-request.yml     # Detects affected Docker paths and publishes a PR summary
 ```
 
-Each module workflow triggers on push to its own `modules/<name>/**` path.
-`full-infra.yml` triggers on push to `stacks/full-infra/**`. `pull-request.yml`
-triggers on `pull_request` events targeting `main`, and validates only the
-modules affected by the diff — plus the full stack unconditionally.
+Each module workflow triggers on pushes to its corresponding
+`modules/<name>/docker/**` path, its module README, or its own workflow file.
+
+`full-infra.yml` triggers on Docker stack paths, Docker artefacts from modules,
+or changes to its workflow definition.
+
+`pull-request.yml` triggers on pull requests targeting `main`. It detects the
+Docker module and stack paths affected by the diff and runs only the
+corresponding technical validation jobs.
 
 ---
 
@@ -103,44 +128,40 @@ modules affected by the diff — plus the full stack unconditionally.
 
 | Action | Used in | Purpose |
 |---|---|---|
-| `actions/checkout@v4` | all workflows | clones the repo into the runner |
-| `docker/setup-buildx-action@v3` | `web-server.yml`, `full-infra.yml` (compose job) | enables BuildKit for `docker build` |
-| `docker/build-push-action@v6` | `web-server.yml` | runs the build, `push: false` |
-
-No Terraform-specific action is required — `terraform fmt` and
-`terraform validate` run directly via the CLI, installed with
-`hashicorp/setup-terraform@v3` if the runner does not ship it by default.
+| `actions/checkout@v7` | All workflows | Checks out the repository into the runner |
+| `docker/setup-buildx-action@v4` | `web-server.yml`, `full-infra.yml`, `pull-request.yml` | Enables BuildKit for Docker image builds |
+| `docker/build-push-action@v7` | `web-server.yml`, `pull-request.yml` | Builds the custom web-server image with `push: false` |
+| `hashicorp/setup-terraform@v4` | `full-infra.yml` | Installs Terraform for format and validation checks |
 
 ---
 
 ## Design decisions — Pull Request workflow
 
-**A dedicated `pull-request.yml`, not reused module workflows.** A PR can touch
-several modules at once — the module workflows are scoped to a single path and
-would require duplicating trigger logic across five files to cover that case
-correctly. A single PR-scoped workflow detects every changed path in one diff
-and runs the relevant checks conditionally, which the per-module workflows are
-not designed to do.
+**A dedicated `pull-request.yml`, not reused module workflows.** A pull request
+can touch several modules at once. The push workflows are scoped to a single
+module path and would require duplicated cross-module trigger logic to cover a
+pull request correctly. A PR-scoped workflow detects every relevant changed path
+in one diff and runs the corresponding checks conditionally.
 
-**Diff detection with `dorny/paths-filter@v3`, not shell scripting.** GitHub
-Actions has no native way to expose "which paths changed in this diff" as a
-reusable output between steps. `paths-filter` solves this cleanly: it outputs
-a boolean per defined path pattern, consumed by `if:` conditions on later
-steps. Without it, the same logic would require manual `git diff` parsing —
-more code, more failure surface, for less clarity.
+**Diff detection with `dorny/paths-filter@v4`, not shell scripting.** GitHub
+Actions does not natively expose reusable outputs for module path changes in a
+pull request diff. `paths-filter` provides one boolean output per defined path
+pattern, consumed by `if:` conditions in later jobs. Without it, the workflow
+would need manual `git diff` parsing, which adds code and failure surface with
+less clarity.
 
-**Full-stack validation always runs, module checks are conditional.** Any PR
-merged to `main` eventually affects the full stack, so `full-infra` validation
-is not gated behind a path match — it always runs on every PR. Module-specific
-checks (`compose config`, or `docker build` for web-server) only run for the
-modules actually touched in the diff, avoiding redundant checks on unrelated
-modules.
+**Full-stack Docker validation is path-scoped in pull requests.** The
+`validate-full-infra` job runs when a pull request changes
+`stacks/full-infra/docker/**`, any `modules/**/docker/**` path, or
+`.github/workflows/full-infra.yml`. Documentation-only changes do not build the
+full Docker stack. Module-specific checks run only when their corresponding
+Docker runtime paths, module README, or workflow definition change.
 
-**Results are surfaced directly in the PR, not only in the Actions tab.** A
-per-module pass/fail summary is written into the PR via `github-script`. This
-is deliberate for portfolio visibility: a reviewer opening the PR sees the
-validation breakdown without navigating to a separate tab — the same UX a
-recruiter or teammate would expect from a mature CI setup.
+**Results are surfaced directly in the pull request, not only in the Actions
+tab.** A per-module pass/fail summary is written into the pull request via
+`github-script`. This is deliberate for portfolio visibility: a reviewer
+opening the pull request sees the validation breakdown without navigating to a
+separate tab.
 
 ---
 
@@ -148,13 +169,13 @@ recruiter or teammate would expect from a mature CI setup.
 
 | Action | Purpose |
 |---|---|
-| `actions/checkout@v4` | clones the repo in every job that needs the diff or the code |
-| `dorny/paths-filter@v3` | detects which module paths changed in the PR diff |
-| `docker/setup-buildx-action@v3` | enables BuildKit for the web-server build job |
-| `actions/github-script@v7` | writes the per-module validation summary into the PR |
+| `actions/checkout@v7` | Checks out the repository in jobs that need source code or the diff |
+| `dorny/paths-filter@v4` | Detects which Docker module and stack paths changed in the pull request |
+| `docker/setup-buildx-action@v4` | Enables BuildKit for the web-server build job |
+| `docker/build-push-action@v7` | Builds the custom web-server image with `push: false` |
+| `actions/github-script@v9` | Writes the per-module validation summary into the pull request |
 
-Each `validate-*` job depends on `detect-changes` and runs only if its
-corresponding path changed, except `validate-full-infra`, which always runs
-regardless of which modules were touched.
-
----
+Each `validate-*` job depends on `detect-changes` and runs only when its
+corresponding path filter matches the pull request diff. The full-stack Docker
+job is also path-scoped and runs when Docker stack or module Docker artefacts
+change.

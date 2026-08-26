@@ -179,7 +179,7 @@ terraform apply containerize.tfplan
 `user_data` script is injected into the instance at launch by the AWS API as
 instance metadata. The script runs as root on first boot via `cloud-init`,
 installs Docker Engine from the official Docker APT repository, clones this
-repo, and runs `docker compose -f stacks/full-infra/docker-compose.prod.yml up -d`.
+repo, and runs `docker compose -f stacks/full-infra/docker/docker-compose.prod.yml up -d`.
 
 This is the handoff point between layers: Terraform's job ends when the
 instance is running. Docker Compose's job begins inside that instance.
@@ -239,7 +239,7 @@ sudo systemctl status docker --no-pager
 
 # ── Containers ────────────────────────────────────────────────────────────
 cd /home/ubuntu/containerize-your-infra
-sudo docker compose -f stacks/full-infra/docker-compose.prod.yml ps
+sudo docker compose -f stacks/full-infra/docker/docker-compose.prod.yml ps
 # → traefik         Up X minutes (healthy)
 # → web-server      Up X minutes (healthy)
 # → file-transfer   Up X minutes (healthy)
@@ -275,7 +275,7 @@ deployment.
 **TLS certificates** are not committed to the repository — they are generated
 automatically by `user_data.sh` after cloning the repo and before the stack
 starts. `openssl` generates a self-signed certificate valid for `localhost`.
-Traefik loads it at startup from `modules/reverse-proxy/configs/traefik/certs/`.
+Traefik loads it at startup from `modules/reverse-proxy/docker/configs/traefik/certs/`.
 The `404` on `https://localhost/dashboard/` is expected — the dashboard router
 rule matches `traefik.localhost`, not the bare IP or `localhost`.
 

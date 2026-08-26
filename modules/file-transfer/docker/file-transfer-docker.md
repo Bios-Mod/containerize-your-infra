@@ -411,5 +411,3 @@ sftp -P 2222 -i configs/keys/labuser_ed25519 -oStrictHostKeyChecking=no labuser@
 ```
 
 ---
-
-**Next:** [`modules/dns/dns.md`](../dns/dns.md)

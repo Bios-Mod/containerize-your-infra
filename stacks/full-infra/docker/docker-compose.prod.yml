@@ -1,8 +1,8 @@
 # Deploy to:   Ubuntu 24.04 LTS — EC2 t4g.micro or local VM
 # Apply:       docker compose -f docker-compose.prod.yml up -d --build
 # Module:      full-infra
-# Requires:    modules/web-server/configs/, modules/file-transfer/configs/,
-#              modules/dns/configs/, modules/reverse-proxy/configs/traefik/certs/
+# Requires:    modules/web-server/docker/configs/, modules/file-transfer/docker/configs/,
+#              modules/dns/docker/configs/, modules/reverse-proxy/docker/configs/traefik/certs/
 #
 # Full-stack production compose. Aggregates all modules into a single deployable unit.
 # Config files are referenced from each module's configs/ directory — no duplication.
@@ -27,9 +27,9 @@ services:
 
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ../../modules/reverse-proxy/configs/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
-      - ../../modules/reverse-proxy/configs/traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
-      - ../../modules/reverse-proxy/configs/traefik/certs:/etc/traefik/certs:ro
+      - ../../../modules/reverse-proxy/docker/configs/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ../../../modules/reverse-proxy/docker/configs/traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - ../../../modules/reverse-proxy/docker/configs/traefik/certs:/etc/traefik/certs:ro
 
     labels:
       - "traefik.enable=true"
@@ -53,7 +53,7 @@ services:
   web-server:
 
     build:
-      context: ../../modules/web-server
+      context: ../../../modules/web-server/docker/
       dockerfile: Dockerfile
     image: web-server:local
 
@@ -91,26 +91,24 @@ services:
     networks:
       - proxy-net
 
-# ── File Transfer ─────────────────────────────────────────────────────────
+  # ── File Transfer ─────────────────────────────────────────────────────────
   file-transfer:
-
-    image: lscr.io/linuxserver/openssh-server:latest
+    image: atmoz/sftp:alpine
+    platform: linux/amd64
     container_name: file-transfer
 
     restart: unless-stopped
 
     ports:
-      - "2222:2222"
+      - "2222:22"
 
     environment:
-      - USER_NAME=labuser
-      - PASSWORD_ACCESS=false
-      - PUBLIC_KEY_FILE=/config/labuser_ed25519.pub
+      SFTP_USERS: "labuser::1001::upload"
 
     volumes:
-      - ../../modules/file-transfer/configs/ssh/ssh_host_ed25519_key:/etc/ssh/ssh_host_ed25519_key
-      - ../../modules/file-transfer/configs/ssh/ssh_host_rsa_key:/etc/ssh/ssh_host_rsa_key
-      - ../../modules/file-transfer/configs/keys/labuser_ed25519.pub:/config/labuser_ed25519.pub:ro
+      - ../../../modules/file-transfer/docker/configs/ssh/ssh_host_ed25519_key:/etc/ssh/ssh_host_ed25519_key
+      - ../../../modules/file-transfer/docker/configs/ssh/ssh_host_rsa_key:/etc/ssh/ssh_host_rsa_key
+      - ../../../modules/file-transfer/docker/configs/keys/labuser_ed25519.pub:/home/labuser/.ssh/keys/labuser_ed25519.pub:ro
       - file-transfer-data:/home/labuser/upload
 
     cap_drop:
@@ -126,7 +124,7 @@ services:
       - SYS_CHROOT
 
     healthcheck:
-      test: ["CMD-SHELL", "netstat -lnt | grep :2222 || exit 1"]     
+      test: ["CMD-SHELL", "pidof sshd || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -138,7 +136,8 @@ services:
   # ── DNS ───────────────────────────────────────────────────────────────────
   dns:
 
-    image: ubuntu/bind9:latest
+    image: internetsystemsconsortium/bind9:9.20
+    platform: linux/amd64
     container_name: dns
     
     restart: unless-stopped
@@ -152,11 +151,11 @@ services:
       - "53:53/udp"
 
     volumes:
-      - ../../modules/dns/configs/bind/named.conf:/etc/bind/named.conf:ro
-      - ../../modules/dns/configs/bind/named.conf.options:/etc/bind/named.conf.options:ro
-      - ../../modules/dns/configs/bind/named.conf.local:/etc/bind/named.conf.local:ro
-      - ../../modules/dns/configs/bind/db.lab.local:/etc/bind/db.lab.local:ro
-      - ../../modules/dns/configs/bind/db.172.20.0:/etc/bind/db.172.20.0:ro
+      - ../../../modules/dns/docker/configs/bind/named.conf:/etc/bind/named.conf:ro
+      - ../../../modules/dns/docker/configs/bind/named.conf.options:/etc/bind/named.conf.options:ro
+      - ../../../modules/dns/docker/configs/bind/named.conf.local:/etc/bind/named.conf.local:ro
+      - ../../../modules/dns/docker/configs/bind/db.lab.local:/etc/bind/db.lab.local:ro
+      - ../../../modules/dns/docker/configs/bind/db.172.20.0:/etc/bind/db.172.20.0:ro
       - dns-cache:/var/cache/bind
 
     command: ["-g"]

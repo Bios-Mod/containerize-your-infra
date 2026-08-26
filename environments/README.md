@@ -1,15 +1,24 @@
 # Environments
 
-This directory contains environment-specific setup documentation for the lab.
+This directory contains environment-specific setup documentation for the Docker
+and Kubernetes implementations of the lab.
 
-Each module ships its own `docker-compose.yml` for development and a
-`docker-compose.prod.yml` for standalone production deployment. The full-stack
-production compose that aggregates all modules into a single deployable unit
-lives in [`stacks/full-infra/`](../stacks/full-infra/README.md).
+Each runtime keeps its own environment procedures. Docker is the current
+functional implementation for local development and EC2 production. Kubernetes
+procedures will be added when the EKS implementation is introduced.
 
 ---
 
-## Environment matrix
+## Runtime structure
+
+| Runtime | dev | prod | Status |
+|---|---|---|---|
+| Docker | [`docker/dev/setup.md`](docker/dev/setup.md) | [`docker/prod/setup.md`](docker/prod/setup.md) | Implemented |
+| Kubernetes | Planned | Planned | Not implemented |
+
+---
+
+## Docker environment matrix
 
 | Parameter | dev | prod |
 |---|---|---|
@@ -20,7 +29,7 @@ lives in [`stacks/full-infra/`](../stacks/full-infra/README.md).
 | Debug ports | Exposed | Not exposed |
 | TLS | Self-signed | Let's Encrypt (Traefik ACME) |
 
----
-
-- **dev** → [`dev/setup.md`](dev/setup.md)
-- **prod** → [`prod/setup.md`](prod/setup.md)
+The Docker implementation includes a standalone development Compose file and a
+standalone production Compose file per module. The full-stack production Compose
+that aggregates all modules into one deployable unit lives in
+[`stacks/full-infra/docker/`](../stacks/full-infra/docker/full-infra-docker.md).

@@ -41,7 +41,7 @@ docker compose version
 
 ---
 
-## Step 3 — Cross-architecture images
+## Step 2 — Cross-architecture images
 
 ### What was done
 
@@ -57,7 +57,7 @@ execution and runs it through its built-in translator. This is why modules like
 `file-transfer` (`atmoz/sftp`) work in dev without any setup step.
 
 In prod (Docker Engine on Ubuntu ARM64) this emulation is not included —
-see [`environments/prod/setup.md`](../prod/setup.md) for the equivalent step.
+see [`environments/docker/prod/setup.md`](../prod/setup.md) for the equivalent step.
 
 ### Verification
 
@@ -69,7 +69,7 @@ docker run --rm --platform linux/amd64 alpine uname -m
 
 ---
 
-## Step 2 — Clone the repository
+## Step 3 — Clone the repository
 
 ### What was done
 Clone the repository to the local machine.
@@ -92,5 +92,3 @@ ls
 ```
 
 ---
-
-**Next:** [`modules/web-server/web-server.md`](../../modules/web-server/web-server.md)

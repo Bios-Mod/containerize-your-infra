@@ -10,9 +10,9 @@ Contributions that improve clarity, correctness, or coverage are welcome.
 **Reporting issues**
 Open a GitHub Issue describing:
 
-- Which module, environment, or config file is affected
+- Which module, environment, stack, workflow, or config file is affected
 - What the current behaviour is and what you expected
-- Your deployment context (`dev` or `prod`) and architecture (ARM64 or x86_64)
+- Your deployment context (`docker/dev` or `docker/prod`) and architecture (ARM64 or x86_64)
 
 **Suggesting improvements**
 Open a GitHub Issue before submitting a PR for significant changes — a brief
@@ -23,7 +23,7 @@ discussion avoids duplicated effort and keeps the lab coherent.
 1. Fork the repository and create a branch from `main`
 2. Keep changes focused — one fix or addition per PR
 3. Follow the existing conventions:
-   - Config files in `modules/<module>/configs/` include a standard header block:
+   - Config files in `modules/<module>/docker/configs/` include a standard header block:
      ```
      # Deploy to:   <target path inside the container or on the host>
      # Apply:       <docker compose up / docker build / cp>
@@ -47,13 +47,14 @@ discussion avoids duplicated effort and keeps the lab coherent.
 - Additional verification commands for existing steps
 - Architecture-specific notes (ARM64 / x86_64 differences)
 - Alternative image choices with documented tradeoffs
+- Corrections to Docker Compose, Terraform, CI, and documentation paths caused by the runtime layout refactor
 
 ## What is out of scope
 
 - New service modules without prior Issue alignment
-- Automation content under `automation/` (Phase 3 — not yet open)
+- New automation tools or implementations without prior Issue alignment
 - GUI-based or non-CLI approaches
-- Kubernetes or Docker Swarm content (separate scope)
+- Kubernetes, Docker Swarm, or other orchestration content until explicitly opened in the repository roadmap
 
 ---
 
