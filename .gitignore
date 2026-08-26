@@ -8,17 +8,17 @@ AGENTS.md
 context/
 
 # SSH host keys — private keys must never be committed
-modules/file-transfer/configs/ssh/ssh_host_ed25519_key
-modules/file-transfer/configs/ssh/ssh_host_rsa_key
+modules/file-transfer/docker/configs/ssh/ssh_host_ed25519_key
+modules/file-transfer/docker/configs/ssh/ssh_host_rsa_key
 
 # Client key pairs — private key must never be committed
-modules/file-transfer/configs/keys/labuser_ed25519
+modules/file-transfer/docker/configs/keys/labuser_ed25519
 
 # Runtime data — not tracked, recreated on deploy
-modules/file-transfer/data/
+modules/file-transfer/docker/data/
 
 # TLS certificates — generated locally, never committed
-modules/reverse-proxy/configs/traefik/certs/*
+modules/reverse-proxy/docker/configs/traefik/certs/*
 
 # Terraform — local plugins downloaded by init
 .terraform/
@@ -28,8 +28,10 @@ modules/reverse-proxy/configs/traefik/certs/*
 *.tfstate.*
 terraform.tfvars
 *.tfvars.json
-stacks/full-infra/automation/terraform/main.tf
-stacks/full-infra/automation/terraform/outputs.tf
+stacks/full-infra/docker/automation/terraform/main.tf
+stacks/full-infra/docker/automation/terraform/outputs.tf
+stacks/full-infra/kubernetes/automation/terraform/main.tf
+stacks/full-infra/kubernetes/automation/terraform/outputs.tf
 
 # Terraform — lock file for local execution state
 .terraform.tfstate.lock.info

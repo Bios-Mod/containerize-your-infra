@@ -22,34 +22,58 @@ jobs:
       file-transfer: ${{ steps.filter.outputs.file-transfer }}
       dns: ${{ steps.filter.outputs.dns }}
       reverse-proxy: ${{ steps.filter.outputs.reverse-proxy }}
+      full-infra: ${{ steps.filter.outputs.full-infra }}
+
     steps:
-      - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v4
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Detect changed paths
+        uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
             web-server:
-              - 'modules/web-server/**'
+              - 'modules/web-server/docker/**'
+              - 'modules/web-server/README.md'
+              - '.github/workflows/web-server.yml'
+
             file-transfer:
-              - 'modules/file-transfer/**'
+              - 'modules/file-transfer/docker/**'
+              - 'modules/file-transfer/README.md'
+              - '.github/workflows/file-transfer.yml'
+
             dns:
-              - 'modules/dns/**'
+              - 'modules/dns/docker/**'
+              - 'modules/dns/README.md'
+              - '.github/workflows/dns.yml'
+
             reverse-proxy:
-              - 'modules/reverse-proxy/**'
+              - 'modules/reverse-proxy/docker/**'
+              - 'modules/reverse-proxy/README.md'
+              - '.github/workflows/reverse-proxy.yml'
+
+            full-infra:
+              - 'stacks/full-infra/docker/**'
+              - 'modules/**/docker/**'
+              - '.github/workflows/full-infra.yml'
 
   validate-web-server:
     needs: detect-changes
     if: needs.detect-changes.outputs.web-server == 'true'
     runs-on: ubuntu-24.04-arm
-    defaults:
-      run:
-        working-directory: modules/web-server
+
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/build-push-action@v7
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build custom web-server image
+        uses: docker/build-push-action@v7
         with:
-          context: modules/web-server
+          context: modules/web-server/docker/
           push: false
           tags: web-server:pr
 
@@ -59,11 +83,17 @@ jobs:
     runs-on: ubuntu-24.04-arm
     defaults:
       run:
-        working-directory: modules/file-transfer
+        working-directory: modules/file-transfer/docker/
+
     steps:
-      - uses: actions/checkout@v7
-      - run: docker compose -f docker-compose.yml config
-      - run: docker compose -f docker-compose.prod.yml config
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Validate development Compose syntax
+        run: docker compose -f docker-compose.yml config
+
+      - name: Validate production Compose syntax
+        run: docker compose -f docker-compose.prod.yml config
 
   validate-dns:
     needs: detect-changes
@@ -71,11 +101,17 @@ jobs:
     runs-on: ubuntu-24.04-arm
     defaults:
       run:
-        working-directory: modules/dns
+        working-directory: modules/dns/docker/
+
     steps:
-      - uses: actions/checkout@v7
-      - run: docker compose -f docker-compose.yml config
-      - run: docker compose -f docker-compose.prod.yml config
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Validate development Compose syntax
+        run: docker compose -f docker-compose.yml config
+
+      - name: Validate production Compose syntax
+        run: docker compose -f docker-compose.prod.yml config
 
   validate-reverse-proxy:
     needs: detect-changes
@@ -83,32 +119,54 @@ jobs:
     runs-on: ubuntu-24.04-arm
     defaults:
       run:
-        working-directory: modules/reverse-proxy
+        working-directory: modules/reverse-proxy/docker/
+
     steps:
-      - uses: actions/checkout@v7
-      - run: docker compose -f docker-compose.yml config
-      - run: docker compose -f docker-compose.prod.yml config
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Validate development Compose syntax
+        run: docker compose -f docker-compose.yml config
+
+      - name: Validate production Compose syntax
+        run: docker compose -f docker-compose.prod.yml config
 
   validate-full-infra:
     needs: detect-changes
+    if: needs.detect-changes.outputs.full-infra == 'true'
     runs-on: ubuntu-24.04-arm
     defaults:
       run:
-        working-directory: stacks/full-infra
+        working-directory: stacks/full-infra/docker/
+
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
-      - run: docker compose -f docker-compose.prod.yml config
-      - run: docker compose -f docker-compose.prod.yml build
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Validate full-stack Compose syntax
+        run: docker compose -f docker-compose.prod.yml config
+
+      - name: Build full stack
+        run: docker compose -f docker-compose.prod.yml build
 
   summary:
-    needs: [validate-web-server, validate-file-transfer, validate-dns, validate-reverse-proxy, validate-full-infra]
+    needs:
+      - validate-web-server
+      - validate-file-transfer
+      - validate-dns
+      - validate-reverse-proxy
+      - validate-full-infra
     if: always()
     runs-on: ubuntu-24.04-arm
     permissions:
       pull-requests: write
+
     steps:
-      - uses: actions/github-script@v9
+      - name: Publish CI summary
+        uses: actions/github-script@v9
         with:
           script: |
             const results = {
@@ -118,11 +176,14 @@ jobs:
               "reverse-proxy": "${{ needs.validate-reverse-proxy.result }}",
               "full-infra": "${{ needs.validate-full-infra.result }}"
             };
+
             let body = "### CI Summary\n\n| Module | Result |\n|---|---|\n";
-            for (const [mod, res] of Object.entries(results)) {
-              body += `| ${mod} | ${res} |\n`;
+
+            for (const [module, result] of Object.entries(results)) {
+              body += `| ${module} | ${result} |\n`;
             }
-            github.rest.issues.createComment({
+
+            await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,

@@ -1,4 +1,4 @@
-# Deploy to:   modules/dns/docker-compose.yml
+# Deploy to:   modules/dns/docker/docker-compose.yml
 # Apply:       docker compose up -d
 # Module:      dns
 # Requires:    configs/bind/named.conf, named.conf.options, named.conf.local, db.lab.local, db.172.20.0

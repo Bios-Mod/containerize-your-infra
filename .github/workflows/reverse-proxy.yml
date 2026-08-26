@@ -12,17 +12,20 @@ name: reverse-proxy
 on:
   push:
     branches: main
+# paths for automatic validation of the reverse-proxy module. Changes to any of these
     paths:
-      - "modules/reverse-proxy/**"
+      - "modules/reverse-proxy/docker/**"
+      - "modules/reverse-proxy/README.md"
+      - ".github/workflows/reverse-proxy.yml"
 
 jobs:
   validate:
     runs-on: ubuntu-24.04-arm
     defaults:
       run:
-        working-directory: modules/reverse-proxy
+        working-directory: modules/reverse-proxy/docker/
 
-    steps: 
+    steps:
       - name: Checkout repository
         uses: actions/checkout@v7
 
@@ -31,7 +34,7 @@ jobs:
 
       - name: Validate docker-compose.prod syntax
         run: docker compose -f docker-compose.prod.yml config
-      
+
       - name: Pull image to confirm reference is valid (dev)
         run: docker compose -f docker-compose.yml pull
 

@@ -6,14 +6,9 @@
 
 ## Introduction
 
-This document covers the deployment of Nginx as a static web server inside a
-Docker container. The service exposes port 8080 and serves a static HTML page —
-the lab index. TLS termination and HTTPS are out of scope for this environment;
-they are addressed in the production overlay (`environments/prod/`).
+This document covers the deployment of Nginx as a static web server inside a Docker container. The service exposes port 8080 and serves a static HTML page — the lab index. TLS termination and HTTPS are out of scope for this environment; they are addressed in the production overlay (`environments/docker/prod/`).
 
-This module establishes the first running container in the lab. Its purpose is
-to validate the Docker Engine setup, practice Compose fundamentals, and apply
-container hardening patterns that carry forward to every subsequent module.
+This module establishes the first running container in the lab. Its purpose is to validate the Docker Engine setup, practice Compose fundamentals, and apply container hardening patterns that carry forward to every subsequent module.
 
 > **No reverse proxy in this module.** Nginx here serves static content only.
 > Upstream routing and TLS termination are handled by Traefik in the
@@ -344,5 +339,3 @@ docker compose -f docker-compose.prod.yml down -v
 ```
 
 ---
-
-**Next:** [`modules/file-transfer/file-transfer.md`](../file-transfer/file-transfer.md)

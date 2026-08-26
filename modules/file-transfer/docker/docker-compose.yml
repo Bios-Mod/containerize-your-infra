@@ -1,4 +1,4 @@
-# Deploy to:   modules/file-transfer/docker-compose.yml
+# Deploy to:   modules/file-transfer/docker/docker-compose.yml
 # Apply:       docker compose up -d
 # Module:      file-transfer
 # Requires:    configs/ssh/ host keys (Step 1), configs/keys/labuser_ed25519.pub (Step 2),
@@ -10,7 +10,7 @@
 services:
   file-transfer:
     image: atmoz/sftp:alpine
-    platform: linux/amd64 
+    platform: linux/amd64
     container_name: file-transfer
     ports:
       - "2222:22"
@@ -20,7 +20,7 @@ services:
       - ./configs/keys/labuser_ed25519.pub:/home/labuser/.ssh/keys/labuser_ed25519.pub:ro
       - ./data/upload:/home/labuser/upload
     environment:
-      - SFTP_USERS=labuser::1001::upload
+      SFTP_USERS: "labuser::1001::upload"
     cap_drop:
       - ALL
     cap_add:
@@ -29,6 +29,6 @@ services:
       - SETUID
       - SETGID
       - DAC_OVERRIDE
-      - FOWNER 
+      - FOWNER
       - SYS_CHROOT
     restart: "no"

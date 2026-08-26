@@ -1,4 +1,4 @@
-# Deploy to:   modules/web-server/docker-compose.yml
+# Deploy to:   modules/web-server/docker/docker-compose.yml
 # Apply:       docker compose build
 #              docker compose up -d
 # Module:      web-server

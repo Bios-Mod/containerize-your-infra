@@ -1,4 +1,4 @@
-# Deploy to:   modules/reverse-proxy/
+# Deploy to:   modules/reverse-proxy/docker/docker-compose.yml
 # Apply:       docker compose up -d
 # Module:      reverse-proxy
 # Requires:    configs/traefik/traefik.yml, configs/traefik/dynamic.yml

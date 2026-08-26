@@ -12,14 +12,17 @@ name: web-server
 on:
   push:
     branches: main
+# Paths for automatic validation of the web-server module. Changes to any of these
     paths:
-      - "modules/web-server/**"
+      - "modules/web-server/docker/**"
+      - "modules/web-server/README.md"
+      - ".github/workflows/web-server.yml"
 
 jobs:
   validate:
     runs-on: ubuntu-24.04-arm
 
-    steps: 
+    steps:
       - name: Checkout repository
         uses: actions/checkout@v7
 
@@ -29,6 +32,6 @@ jobs:
       - name: Build custom web-server image
         uses: docker/build-push-action@v7
         with:
-          context: modules/web-server
+          context: modules/web-server/docker/
           push: false
           tags: web-server:ci

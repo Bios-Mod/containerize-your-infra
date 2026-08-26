@@ -19,13 +19,13 @@ File transfer is exposed directly on port `2222` — it has no HTTP frontend
 and does not go through Traefik.
 
 > **Config files stay in each module's `configs/` directory.** This compose
-> references them with relative paths (`../../modules/*/configs/`). No
+> references them with relative paths (`../../../modules/*/docker/configs/`). No
 > duplication — a change to a module's config is reflected in the stack
 > on the next `docker compose up`.
 
 > **Prerequisites:** each module must have been deployed and verified
 > individually before running this stack. The configs, host keys, and TLS
-> certificates must already exist in their respective `modules/*/configs/`
+> certificates must already exist in their respective `modules/*/docker/configs/`
 > directories.
 
 ---
@@ -52,24 +52,24 @@ Confirm that each module's configs are in place:
 cd containerize-your-infra/
 
 # TLS certificates (required by Traefik at startup)
-ls modules/reverse-proxy/configs/traefik/certs/
+ls modules/reverse-proxy/docker/configs/traefik/certs/
 # → lab.crt  lab.key
 
 # BasicAuth hash (required for dashboard access)
-grep -c "users:" modules/reverse-proxy/configs/traefik/dynamic.yml
+grep -c "users:" modules/reverse-proxy/docker/configs/traefik/dynamic.yml
 # → 1  (confirms the basicAuth block exists)
 
 # SSH host keys (required by file-transfer at startup)
-ls modules/file-transfer/configs/ssh/
+ls modules/file-transfer/docker/configs/ssh/
 # → ssh_host_ed25519_key  ssh_host_rsa_key
 
 # SSH host keys — permissions must be 600 (sshd rejects keys readable by others)
 # macOS/BSD:
-stat -f "%OLp %N" modules/file-transfer/configs/ssh/ssh_host_ed25519_key modules/file-transfer/configs/ssh/ssh_host_rsa_key
+stat -f "%OLp %N" modules/file-transfer/docker/configs/ssh/ssh_host_ed25519_key modules/file-transfer/configs/ssh/ssh_host_rsa_key
 # Linux (prod/EC2):
-stat -c "%a %n" modules/file-transfer/configs/ssh/ssh_host_ed25519_key modules/file-transfer/configs/ssh/ssh_host_rsa_key
-# → 600 modules/file-transfer/configs/ssh/ssh_host_ed25519_key
-# → 600 modules/file-transfer/configs/ssh/ssh_host_rsa_key
+stat -c "%a %n" modules/file-transfer/docker/configs/ssh/ssh_host_ed25519_key modules/file-transfer/configs/ssh/ssh_host_rsa_key
+# → 600 modules/file-transfer/docker/configs/ssh/ssh_host_ed25519_key
+# → 600 modules/file-transfer/docker/configs/ssh/ssh_host_rsa_key
 ```
 
 > **SSH host key permissions:** the host keys must be owned by root and have
@@ -78,23 +78,23 @@ stat -c "%a %n" modules/file-transfer/configs/ssh/ssh_host_ed25519_key modules/f
 > connections silently.
 
 > ```bash
-> sudo chmod 600 modules/file-transfer/configs/ssh/ssh_host_ed25519_key
-> sudo chmod 600 modules/file-transfer/configs/ssh/ssh_host_rsa_key
+> sudo chmod 600 modules/file-transfer/docker/configs/ssh/ssh_host_ed25519_key
+> sudo chmod 600 modules/file-transfer/docker/configs/ssh/ssh_host_rsa_key
 > ```
 
 ```bash
 # BIND9 zone files
-ls modules/dns/configs/bind/
+ls modules/dns/docker/configs/bind/
 # → named.conf  named.conf.options  named.conf.local  db.lab.local  db.172.20.0
 
 # Nginx config and HTML — required at build time (Dockerfile COPY), not runtime mount
-ls modules/web-server/configs/nginx/ modules/web-server/configs/html/
+ls modules/web-server/docker/configs/nginx/ modules/web-server/docker/configs/html/
 # → nginx.conf
 # → index.html
 ```
 
 > **Traefik BasicAuth password:** the bcrypt hash in
-> `modules/reverse-proxy/configs/traefik/dynamic.yml` was generated during
+> `modules/reverse-proxy/docker/configs/traefik/dynamic.yml` was generated during
 > the reverse-proxy module. If you need to reset it:
 > ```bash
 > # On any host with apache2-utils installed (sudo apt-get install -y apache2-utils)
@@ -121,7 +121,7 @@ ls modules/web-server/configs/nginx/ modules/web-server/configs/html/
 
 ### What was done
 
-The full stack is deployed from `stacks/full-infra/` using the unified
+The full stack is deployed from `stacks/full-infra/docker/` using the unified
 `docker-compose.prod.yml`. All four services start on the shared `proxy-net` network.
 Named volumes for persistent data (`file-transfer-data`, `dns-cache`)
 are created automatically on first run.
@@ -131,7 +131,7 @@ builds the image automatically if it doesn't exist locally, or you can force
 a rebuild with `--build`.
 
 ```bash
-cd stacks/full-infra
+cd stacks/full-infra/docker/
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
@@ -144,7 +144,7 @@ of all service dependencies, networks, and volumes in one operation. Docker
 creates the `proxy-net` network and both named volumes before starting any
 container — there is no manual pre-provisioning step.
 
-The config files stay in `modules/*/configs/` and are referenced with relative
+The config files stay in `modules/*/docker/configs/` and are referenced with relative
 paths. This avoids duplication: a module's config is the single source of
 truth regardless of whether the module is deployed standalone or as part of
 this stack.
@@ -160,9 +160,9 @@ contacts backends through `proxy-net` regardless of what the static
 `traefik.yml` specifies — necessary when the same `traefik.yml` is shared
 between the standalone module and this full-stack compose.
 
-`web-server`'s `build.context` points to `../../modules/web-server` — the
+`web-server`'s `build.context` points to `../../modules/web-server/docker/` — the
 Dockerfile and its `COPY` paths resolve relative to that directory, not to
-`stacks/full-infra/` where this compose file lives.
+`stacks/full-infra/docker/` where this compose file lives.
 
 ### Verification
 
@@ -241,7 +241,7 @@ dig @127.0.0.1 google.com +short
 
 # SFTP port is open (container listens on 2222, mapped to host 2222)
 ssh -p 2222 -o StrictHostKeyChecking=no labuser@127.0.0.1 \
-  -i ../../modules/file-transfer/configs/keys/labuser_ed25519 exit
+  -i ../../../modules/file-transfer/docker/configs/keys/labuser_ed25519 exit
 
 # Warning: Permanently added '[127.0.0.1]:2222' (ED25519) to the list of known hosts.
 # (connection closes cleanly — exit code 0)

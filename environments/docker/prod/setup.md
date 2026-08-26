@@ -183,6 +183,3 @@ docker run --rm --platform linux/amd64 alpine uname -m
 ```
 
 ---
-
-**Next:** deploy a module using its `docker-compose.prod.yml`, or deploy the
-full stack from [`stacks/full-infra/`](../../stacks/full-infra/README.md).

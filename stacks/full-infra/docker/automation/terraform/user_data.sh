@@ -36,12 +36,12 @@ git clone https://github.com/Bios-Mod/containerize-your-infra.git \
   /home/ubuntu/containerize-your-infra
 
 # ── TLS certificates for Traefik ──────────────────────────────────────────
-mkdir -p /home/ubuntu/containerize-your-infra/modules/reverse-proxy/configs/traefik/certs
+mkdir -p /home/ubuntu/containerize-your-infra/modules/reverse-proxy/docker/configs/traefik/certs
 openssl req -x509 -newkey rsa:4096 \
-  -keyout /home/ubuntu/containerize-your-infra/modules/reverse-proxy/configs/traefik/certs/lab.key \
-  -out /home/ubuntu/containerize-your-infra/modules/reverse-proxy/configs/traefik/certs/lab.crt \
+  -keyout /home/ubuntu/containerize-your-infra/modules/reverse-proxy/docker/configs/traefik/certs/lab.key \
+  -out /home/ubuntu/containerize-your-infra/modules/reverse-proxy/docker/configs/traefik/certs/lab.crt \
   -days 365 -nodes -subj "/CN=localhost"
 
 # ── Stack ─────────────────────────────────────────────────────────────────
 cd /home/ubuntu/containerize-your-infra
-docker compose -f stacks/full-infra/docker-compose.prod.yml up -d
+docker compose -f stacks/full-infra/docker/docker-compose.prod.yml up -d
