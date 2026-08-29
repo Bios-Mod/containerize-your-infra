@@ -1,0 +1,20 @@
+# Deploy to:   full-infra-prod namespace
+# Apply:       kubectl apply -f
+# Module:      environments/kubernetes
+# Requires:    environments/kubernetes/dev/setup.md
+#
+# Caps aggregate resource consumption for the production namespace on the
+# shared EKS cluster.
+# Parameters modified from baseline:  none — first definition
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: full-infra-prod-quota
+  namespace: full-infra-prod
+spec:
+  hard:
+    requests.cpu: "1500m"
+    requests.memory: "3Gi"
+    limits.cpu: "3000m"
+    limits.memory: "6Gi"
+    pods: "20"

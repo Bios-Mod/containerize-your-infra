@@ -1,0 +1,25 @@
+# Deploy to:   full-infra-prod namespace
+# Apply:       kubectl apply -f
+# Module:      environments/kubernetes
+# Requires:    environments/kubernetes/dev/setup.md
+#
+# Sets default and maximum per-container resource requests/limits for the
+# production namespace.
+# Parameters modified from baseline:  none — first definition
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: full-infra-prod-limits
+  namespace: full-infra-prod
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "250m"
+        memory: "256Mi"
+      defaultRequest:
+        cpu: "100m"
+        memory: "128Mi"
+      max:
+        cpu: "500m"
+        memory: "512Mi"

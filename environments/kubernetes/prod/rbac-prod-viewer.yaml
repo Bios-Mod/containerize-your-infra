@@ -1,0 +1,30 @@
+# Deploy to:   full-infra-prod namespace
+# Apply:       kubectl apply -f
+# Module:      environments/kubernetes
+# Requires:    environments/kubernetes/dev/setup.md
+#
+# Restricts default access on the production namespace to read-only.
+# Parameters modified from baseline:  none — first definition
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: full-infra-prod-viewer
+  namespace: full-infra-prod
+rules:
+  - apiGroups: ["", "apps", "batch"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: full-infra-prod-viewer-binding
+  namespace: full-infra-prod
+subjects:
+  - kind: User
+    name: <your-iam-principal-arn>
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: full-infra-prod-viewer
+  apiGroup: rbac.authorization.k8s.io
