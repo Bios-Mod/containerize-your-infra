@@ -159,60 +159,68 @@ implementation and design decisions.
 ## Repository Structure
 
 ```text
-containerize-your-infra/
-├── README.md
+├── AGENTS.md
+├── banner.png
+├── context
+│   ├── current-iteration.md
+│   ├── decisions-log.md
 ├── continuous-integration.md
 ├── CONTRIBUTING.md
+├── environments
+│   ├── docker
+│   │   ├── dev
+│   │   │   └── setup.md
+│   │   └── prod
+│   │       └── setup.md
+│   ├── kubernetes
+│   │   ├── dev
+│   │   │   └── setup.md
+│   │   └── prod
+│   │       └── setup.md
+│   └── README.md
 ├── LICENSE
-├── banner.png
-├── environments/
-│   ├── README.md
-│   └── docker/
-│       ├── dev/
-│       │   └── setup.md
-│       └── prod/
-│           └── setup.md
-├── modules/
-│   ├── web-server/
-│   │   ├── README.md
-│   │   └── docker/
-│   │       ├── Dockerfile
-│   │       ├── configs/
-│   │       ├── docker-compose.yml
-│   │       ├── docker-compose.prod.yml
-│   │       └── web-server-docker.md
-│   ├── file-transfer/
-│   │   ├── README.md
-│   │   └── docker/
-│   │       ├── configs/
-│   │       ├── data/
-│   │       ├── docker-compose.yml
-│   │       ├── docker-compose.prod.yml
-│   │       └── file-transfer-docker.md
-│   ├── dns/
-│   │   ├── README.md
-│   │   └── docker/
-│   │       ├── configs/
-│   │       ├── docker-compose.yml
-│   │       ├── docker-compose.prod.yml
-│   │       └── dns-docker.md
-│   ├── reverse-proxy/
-│   │   ├── README.md
-│   │   └── docker/
-│   │       ├── configs/
-│   │       ├── docker-compose.yml
-│   │       ├── docker-compose.prod.yml
-│   │       └── reverse-proxy-docker.md
-│   └── ...
-├── stacks/
-│   └── full-infra/
-│       ├── README.md
-│       └── docker/
-│           ├── automation/
-│           │   └── terraform/
-│           ├── automation.md
-│           ├── docker-compose.prod.yml
-│           └── full-infra-docker.md
-└── .github/
-    └── workflows/
+├── modules
+│   ├── dns
+│   │   ├── docker
+│   │   │   ├── configs
+│   │   │   ├── dns-docker.md
+│   │   │   ├── docker-compose.prod.yml
+│   │   │   └── docker-compose.yml
+│   │   └── README.md
+│   ├── file-transfer
+│   │   ├── docker
+│   │   │   ├── configs
+│   │   │   ├── data
+│   │   │   ├── docker-compose.prod.yml
+│   │   │   ├── docker-compose.yml
+│   │   │   └── file-transfer-docker.md
+│   │   └── README.md
+│   ├── reverse-proxy
+│   │   ├── docker
+│   │   │   ├── configs
+│   │   │   ├── docker-compose.prod.yml
+│   │   │   ├── docker-compose.yml
+│   │   │   └── reverse-proxy-docker.md
+│   │   └── README.md
+│   └── web-server
+│       ├── docker
+│       │   ├── configs
+│       │   ├── docker-compose.prod.yml
+│       │   ├── docker-compose.yml
+│       │   ├── Dockerfile
+│       │   └── web-server-docker.md
+│       └── README.md
+├── README.md
+└── stacks
+    └── full-infra
+        ├── docker
+        │   ├── automation/
+        │   ├── automation.md
+        │   ├── docker-compose.prod.yml
+        │   └── full-infra-docker.md
+        ├── kubernetes
+        │   ├── automation/
+        │   ├── automation.md
+        │   └── full-infra-kubernetes.md
+        └── README.md
 ```

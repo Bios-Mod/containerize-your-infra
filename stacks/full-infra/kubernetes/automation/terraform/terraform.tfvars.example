@@ -1,0 +1,22 @@
+# Deploy to:   AWS eu-west-1
+# Apply:       cp terraform.tfvars.example terraform.tfvars
+# Module:      stacks/full-infra/kubernetes/automation/terraform
+# Requires:    variables.tf
+#
+# Real values go in terraform.tfvars (gitignored), never in this file.
+# Parameters modified from baseline: none — adjust to your account/region.
+
+aws_region  = "eu-west-1"
+aws_profile = "multi-lab-admin"
+
+cluster_name       = "full-infra"
+kubernetes_version = "1.36"
+
+vpc_cidr             = "10.0.0.0/16"
+availability_zones   = ["eu-west-1a", "eu-west-1b"]
+public_subnet_cidrs  = ["10.0.0.0/24", "10.0.1.0/24"]
+private_subnet_cidrs = ["10.0.10.0/24", "10.0.11.0/24"]
+
+node_instance_types = ["t4g.medium"]
+node_ami_type       = "AL2023_ARM_64_STANDARD"
+node_count          = 2

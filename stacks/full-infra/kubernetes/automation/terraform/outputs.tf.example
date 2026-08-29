@@ -1,0 +1,52 @@
+# Deploy to:   AWS eu-west-1
+# Apply:       cp outputs.tf.example outputs.tf
+# Module:      stacks/full-infra/kubernetes/automation/terraform
+# Requires:    main.tf
+#
+# Operational outputs needed to configure kubectl and Helm after apply.
+# Parameters modified from baseline: none
+
+output "cluster_name" {
+  description = "Name of the provisioned EKS cluster"
+  value       = aws_eks_cluster.main.name
+}
+
+output "cluster_endpoint" {
+  description = "EKS control plane API endpoint"
+  value       = aws_eks_cluster.main.endpoint
+}
+
+output "cluster_certificate_authority_data" {
+  description = "Base64-encoded certificate authority data for the cluster"
+  value       = aws_eks_cluster.main.certificate_authority[0].data
+}
+
+output "cluster_security_group_id" {
+  description = "Security group EKS created and attached automatically to the cluster and nodes"
+  value       = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
+}
+
+output "vpc_id" {
+  description = "ID of the VPC created for the EKS cluster"
+  value       = aws_vpc.main.id
+}
+
+output "public_subnet_ids" {
+  description = "IDs of the public subnets (NAT Gateways)"
+  value       = aws_subnet.public[*].id
+}
+
+output "private_subnet_ids" {
+  description = "IDs of the private subnets used by the cluster and node group"
+  value       = aws_subnet.private[*].id
+}
+
+output "node_group_name" {
+  description = "Name of the Managed Node Group"
+  value       = aws_eks_node_group.main.node_group_name
+}
+
+output "kubeconfig_command" {
+  description = "Command to configure local kubectl access to this cluster"
+  value       = "aws eks update-kubeconfig --name ${aws_eks_cluster.main.name} --region ${var.aws_region} --profile ${var.aws_profile}"
+}
