@@ -173,11 +173,14 @@ implementation and design decisions.
 │   │   └── prod
 │   │       └── setup.md
 │   ├── kubernetes
+│   │   ├── README.md
 │   │   ├── dev
 │   │   │   └── setup.md
 │   │   └── prod
-│   │       └── setup.md
-│   └── README.md
+│   │       ├── setup.md
+│   │       ├── resource-quota.yaml
+│   │       ├── limit-range.yaml
+│   │       └── rbac-prod-viewer.yaml  
 ├── LICENSE
 ├── modules
 │   ├── dns
