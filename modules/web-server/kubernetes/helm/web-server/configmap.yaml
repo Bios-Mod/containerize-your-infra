@@ -1,0 +1,21 @@
+# Deploy to:   EKS (full-infra-dev / full-infra-prod)
+# Apply:       helm install / helm upgrade
+# Module:      web-server
+# Requires:    none
+#
+# ConfigMap for non-sensitive Nginx config, mirroring the read-only bind mount
+# used in the Docker implementation (configs/ as :ro). Only rendered if
+# values.configMap.data has entries.
+# Parameters modified from baseline: none
+
+{{- if .Values.configMap.data }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-web-server-config
+  labels:
+    app.kubernetes.io/name: web-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  {{- toYaml .Values.configMap.data | nindent 2 }}
+{{- end }}

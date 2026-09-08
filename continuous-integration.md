@@ -22,16 +22,23 @@ services; GitHub Actions verifies the repository artefacts that define both.
 
 ## Runtime scope
 
-CI currently validates the Docker runtime only.
+CI validates both runtimes, incrementally, as each Kubernetes module chart
+becomes functional.
 
 Docker workflows validate Compose configuration, Docker image builds, image
-references, and Docker/EC2 Terraform syntax. Kubernetes validation will be
-added incrementally when Helm charts and EKS Terraform exist and have a
-functional implementation to validate.
+references, and Docker/EC2 Terraform syntax — unchanged, all modules.
 
-Kubernetes CI will not replace Docker CI. Each runtime will keep independent
-path filters and validation jobs so that Docker changes do not trigger Helm
-validation, and Kubernetes changes do not trigger Compose builds.
+Kubernetes workflows validate Helm charts as they are implemented, module by
+module, following the same roadmap order as the migration itself
+(`web-server` first). Each Kubernetes job runs `helm lint` and `helm template`
+against the chart's baseline, dev, and prod values — no cluster access, no AWS
+credentials, same "no `terraform plan` in CI" discipline applied to Helm.
+
+Docker and Kubernetes validation live in the same per-module workflow file but
+as independent jobs, each with its own `paths` filter scope within that
+workflow's trigger. A Docker-only change does not run the Helm job and vice
+versa — `paths:` still gates the whole workflow at the event level, but within
+a triggered run, each job validates only its own runtime.
 
 ---
 
@@ -104,7 +111,8 @@ as a preventive default that manages a secret without a demonstrated need.
 
 ```text
 .github/workflows/
-├── web-server.yml       # Builds the custom Docker image
+├── web-server.yml       # docker-validate: builds the custom Docker image
+│                         # helm-validate: lints and templates the Kubernetes chart
 ├── file-transfer.yml    # Validates Docker Compose configuration and image references
 ├── dns.yml              # Validates Docker Compose configuration and image references
 ├── reverse-proxy.yml    # Validates Docker Compose configuration and image references
@@ -114,13 +122,17 @@ as a preventive default that manages a secret without a demonstrated need.
 
 Each module workflow triggers on pushes to its corresponding
 `modules/<name>/docker/**` path, its module README, or its own workflow file.
+`web-server.yml` additionally triggers on `modules/web-server/kubernetes/**`,
+covering both runtimes in one file with two independent jobs.
 
 `full-infra.yml` triggers on Docker stack paths, Docker artefacts from modules,
-or changes to its workflow definition.
+or changes to its workflow definition — Kubernetes/EKS full-stack validation
+is added when the umbrella chart exists (roadmap Fase 8).
 
 `pull-request.yml` triggers on pull requests targeting `main`. It detects the
 Docker module and stack paths affected by the diff and runs only the
-corresponding technical validation jobs.
+corresponding technical validation jobs. Kubernetes path detection is added to
+this workflow incrementally, alongside each module's Helm job.
 
 ---
 
@@ -132,6 +144,7 @@ corresponding technical validation jobs.
 | `docker/setup-buildx-action@v4` | `web-server.yml`, `full-infra.yml`, `pull-request.yml` | Enables BuildKit for Docker image builds |
 | `docker/build-push-action@v7` | `web-server.yml`, `pull-request.yml` | Builds the custom web-server image with `push: false` |
 | `hashicorp/setup-terraform@v4` | `full-infra.yml` | Installs Terraform for format and validation checks |
+| `azure/setup-helm@v4` | `web-server.yml` (and future Kubernetes module workflows) | Installs Helm for chart lint and template validation |
 
 ---
 
@@ -149,6 +162,11 @@ pull request diff. `paths-filter` provides one boolean output per defined path
 pattern, consumed by `if:` conditions in later jobs. Without it, the workflow
 would need manual `git diff` parsing, which adds code and failure surface with
 less clarity.
+
+**`web-server` PR validation uses independent path filters per runtime.**
+`detect-changes` exposes `web-server-docker` and `web-server-helm` as separate outputs, each scoped to its own runtime path
+(`modules/web-server/docker/**` / `modules/web-server/kubernetes/**`). A Docker-only change does not trigger `validate-web-server-helm`, and a
+Kubernetes-only change does not trigger `validate-web-server-docker` — same compute-avoidance discipline already applied to Docker module workflows, extended per runtime instead of per module. Both filters also match the module README and the workflow file itself, since a change there can affect either runtime and neither job can be assumed unaffected.
 
 **Full-stack Docker validation is path-scoped in pull requests.** The
 `validate-full-infra` job runs when a pull request changes

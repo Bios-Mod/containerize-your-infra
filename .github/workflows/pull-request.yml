@@ -6,7 +6,8 @@
 # Detects changed module paths in the PR diff and runs the corresponding
 # validation jobs conditionally. Full-infra validation always runs. Writes
 # a per-module pass/fail summary into the PR.
-# Parameters modified from baseline: none
+# Parameters modified from baseline: web-server split into independent
+# docker/helm path filters and jobs; summary extended accordingly.
 
 name: pull-request
 
@@ -18,7 +19,8 @@ jobs:
   detect-changes:
     runs-on: ubuntu-24.04-arm
     outputs:
-      web-server: ${{ steps.filter.outputs.web-server }}
+      web-server-docker: ${{ steps.filter.outputs.web-server-docker }}
+      web-server-helm: ${{ steps.filter.outputs.web-server-helm }}
       file-transfer: ${{ steps.filter.outputs.file-transfer }}
       dns: ${{ steps.filter.outputs.dns }}
       reverse-proxy: ${{ steps.filter.outputs.reverse-proxy }}
@@ -33,8 +35,13 @@ jobs:
         id: filter
         with:
           filters: |
-            web-server:
+            web-server-docker:
               - 'modules/web-server/docker/**'
+              - 'modules/web-server/README.md'
+              - '.github/workflows/web-server.yml'
+
+            web-server-helm:
+              - 'modules/web-server/kubernetes/**'
               - 'modules/web-server/README.md'
               - '.github/workflows/web-server.yml'
 
@@ -58,9 +65,9 @@ jobs:
               - 'modules/**/docker/**'
               - '.github/workflows/full-infra.yml'
 
-  validate-web-server:
+  validate-web-server-docker:
     needs: detect-changes
-    if: needs.detect-changes.outputs.web-server == 'true'
+    if: needs.detect-changes.outputs.web-server-docker == 'true'
     runs-on: ubuntu-24.04-arm
 
     steps:
@@ -76,6 +83,33 @@ jobs:
           context: modules/web-server/docker/
           push: false
           tags: web-server:pr
+
+  validate-web-server-helm:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.web-server-helm == 'true'
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Helm lint
+        run: helm lint modules/web-server/kubernetes/helm/web-server
+
+      - name: Helm template (dev)
+        run: |
+          helm template modules/web-server/kubernetes/helm/web-server \
+            -f modules/web-server/kubernetes/helm/web-server/values.yaml \
+            -f modules/web-server/kubernetes/helm/web-server/values-dev.yaml
+
+      - name: Helm template (prod)
+        run: |
+          helm template modules/web-server/kubernetes/helm/web-server \
+            -f modules/web-server/kubernetes/helm/web-server/values.yaml \
+            -f modules/web-server/kubernetes/helm/web-server/values-prod.yaml
 
   validate-file-transfer:
     needs: detect-changes
@@ -154,7 +188,8 @@ jobs:
 
   summary:
     needs:
-      - validate-web-server
+      - validate-web-server-docker
+      - validate-web-server-helm
       - validate-file-transfer
       - validate-dns
       - validate-reverse-proxy
@@ -170,7 +205,8 @@ jobs:
         with:
           script: |
             const results = {
-              "web-server": "${{ needs.validate-web-server.result }}",
+              "web-server (docker)": "${{ needs.validate-web-server-docker.result }}",
+              "web-server (helm)": "${{ needs.validate-web-server-helm.result }}",
               "file-transfer": "${{ needs.validate-file-transfer.result }}",
               "dns": "${{ needs.validate-dns.result }}",
               "reverse-proxy": "${{ needs.validate-reverse-proxy.result }}",

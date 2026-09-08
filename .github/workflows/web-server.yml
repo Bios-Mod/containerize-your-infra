@@ -3,23 +3,25 @@
 # Module:      web-server
 # Requires:    none
 #
-# Builds the custom web-server image (Dockerfile) — validates that the build
-# succeeds in isolation before any integration with the full stack.
-# Parameters modified from baseline: none
+# Builds the custom web-server image (Dockerfile) and validates the Helm chart
+# (lint + template render) — Docker and Kubernetes runtimes validated in the
+# same workflow, same module, per the one-workflow-per-module convention.
+# Parameters modified from baseline: added helm-validate job, extended paths filter
 
 name: web-server
 
 on:
   push:
     branches: main
-# Paths for automatic validation of the web-server module. Changes to any of these
+    # Paths for automatic validation of the web-server module. Changes to any of these
     paths:
       - "modules/web-server/docker/**"
+      - "modules/web-server/kubernetes/**"
       - "modules/web-server/README.md"
       - ".github/workflows/web-server.yml"
 
 jobs:
-  validate:
+  docker-validate:
     runs-on: ubuntu-24.04-arm
 
     steps:
@@ -35,3 +37,31 @@ jobs:
           context: modules/web-server/docker/
           push: false
           tags: web-server:ci
+
+  helm-validate:
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Helm lint
+        run: helm lint modules/web-server/kubernetes/helm/web-server
+
+      - name: Helm template (baseline)
+        run: helm template modules/web-server/kubernetes/helm/web-server
+
+      - name: Helm template (dev)
+        run: |
+          helm template modules/web-server/kubernetes/helm/web-server \
+            -f modules/web-server/kubernetes/helm/web-server/values.yaml \
+            -f modules/web-server/kubernetes/helm/web-server/values-dev.yaml
+
+      - name: Helm template (prod)
+        run: |
+          helm template modules/web-server/kubernetes/helm/web-server \
+            -f modules/web-server/kubernetes/helm/web-server/values.yaml \
+            -f modules/web-server/kubernetes/helm/web-server/values-prod.yaml

@@ -1,0 +1,56 @@
+# Deploy to:   EKS (full-infra-dev / full-infra-prod)
+# Apply:       helm install / helm upgrade
+# Module:      web-server
+# Requires:    ECR repository with the custom web-server image pushed
+#
+# Baseline values shared by dev and prod. Environment differences live in
+# values-dev.yaml / values-prod.yaml and override only what actually differs.
+# Parameters modified from baseline: none
+#
+# Note: image.repository is a placeholder — confirm final ECR repository URI
+# before first deploy. Base image is nginxinc/nginx-unprivileged (UID 101),
+# container listens on 8080, filesystem is read-only (matches Docker impl).
+
+replicaCount: 1
+
+image:
+  repository: 541801281490.dkr.ecr.eu-west-1.amazonaws.com/containerize-your-infra/web-server   # TODO confirm
+  tag: latest                                                          # TODO confirm
+  pullPolicy: IfNotPresent
+
+containerPort: 8080
+
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+
+probes:
+  path: /
+  initialDelaySeconds: 10
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 101
+  runAsGroup: 101
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+tmpfs:
+  - mountPath: /var/cache/nginx
+  - mountPath: /var/run
+  - mountPath: /tmp

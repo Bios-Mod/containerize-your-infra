@@ -30,8 +30,9 @@ terraform.tfvars
 *.tfvars.json
 stacks/full-infra/docker/automation/terraform/main.tf
 stacks/full-infra/docker/automation/terraform/outputs.tf
-stacks/full-infra/kubernetes/automation/terraform/main.tf
-stacks/full-infra/kubernetes/automation/terraform/outputs.tf
+stacks/full-infra/kubernetes/automation/terraform/cluster/main.tf
+stacks/full-infra/kubernetes/automation/terraform/cluster/outputs.tf
+stacks/full-infra/kubernetes/automation/terraform/registry/outputs.tf
 
 # Terraform — lock file for local execution state
 .terraform.tfstate.lock.info
