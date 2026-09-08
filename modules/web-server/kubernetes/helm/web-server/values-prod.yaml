@@ -1,0 +1,20 @@
+# Deploy to:   EKS, namespace full-infra-prod
+# Apply:       helm install / helm upgrade -f values-prod.yaml
+# Module:      web-server
+# Requires:    values.yaml (baseline)
+#
+# Prod-only overrides. Only real differences from baseline.
+# Parameters modified from baseline: replicaCount, image.tag, resources (enforced limits)
+
+replicaCount: 2
+
+image:
+  tag: prod
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 300m
+    memory: 256Mi

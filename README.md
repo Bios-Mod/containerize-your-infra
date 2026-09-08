@@ -46,10 +46,10 @@ self-managed infrastructure and containers.
 
 ## Runtime Implementations
 
-| Runtime | Environments | Deployment model | Status |
-|---|---|---|---|
-| Docker | Local development and EC2 production | Docker Compose | Implemented |
-| Kubernetes | Logical dev and prod environments in one EKS cluster | Helm | In implementation |
+| Runtime | Environments | Deployment model |
+|---|---|---|
+| Docker | Local development and EC2 production | Docker Compose |
+| Kubernetes | Logical dev and prod environments in one EKS cluster | Helm |
 
 Docker and Kubernetes are complementary implementations of the same
 infrastructure stack. Kubernetes does not replace the Docker implementation.
@@ -86,12 +86,16 @@ infrastructure stack. Kubernetes does not replace the Docker implementation.
 | Volumes | Bind mounts | Named volumes |
 | Restart policy | `no` | `unless-stopped` |
 
-Set up the Docker environment before applying any module:
+Set up the target environment before applying any module:
 
-- **dev** — OrbStack on macOS →
+- **Docker dev** — OrbStack on macOS →
   [`environments/docker/dev/setup.md`](environments/docker/dev/setup.md)
-- **prod** — Docker Engine on Ubuntu 24.04 LTS →
+- **Docker prod** — Docker Engine on Ubuntu 24.04 LTS →
   [`environments/docker/prod/setup.md`](environments/docker/prod/setup.md)
+- **Kubernetes dev** — EKS namespace `full-infra-dev` →
+  [`environments/kubernetes/dev/setup.md`](environments/kubernetes/dev/setup.md)
+- **Kubernetes prod** — EKS namespace `full-infra-prod` →
+  [`environments/kubernetes/prod/setup.md`](environments/kubernetes/prod/setup.md)
 
 Kubernetes environment procedures will be added under
 `environments/kubernetes/` when the EKS platform is implemented.
@@ -100,13 +104,13 @@ Kubernetes environment procedures will be added under
 
 ## Modules
 
-| Module | Technology | build-your-infra equivalent | Doc |
+| Module | Runtimes | build-your-infra equivalent | Doc |
 |---|---|---|---|
-| Web Server | Custom image (Dockerfile) on Nginx unprivileged | Nginx + HTTPS + reverse proxy | [`modules/web-server/`](modules/web-server/README.md) |
-| File Transfer | atmoz/sftp | SFTP (OpenSSH subsystem) | [`modules/file-transfer/`](modules/file-transfer/README.md) |
-| DNS | BIND9 | BIND9 | [`modules/dns/`](modules/dns/README.md) |
-| Reverse Proxy | Traefik | Nginx proxy block | [`modules/reverse-proxy/`](modules/reverse-proxy/README.md) |
-| Full Infrastructure Stack | All modules | All modules combined | [`stacks/full-infra/`](stacks/full-infra/README.md) |
+| Web Server | Docker · Kubernetes | Nginx + HTTPS + reverse proxy | [`modules/web-server/`](modules/web-server/README.md) |
+| File Transfer | Docker | SFTP (OpenSSH subsystem) | [`modules/file-transfer/`](modules/file-transfer/README.md) |
+| DNS | Docker | BIND9 | [`modules/dns/`](modules/dns/README.md) |
+| Reverse Proxy | Docker | Nginx proxy block | [`modules/reverse-proxy/`](modules/reverse-proxy/README.md) |
+| Full Infrastructure Stack | Docker | All modules combined | [`stacks/full-infra/`](stacks/full-infra/README.md) |
 
 ---
 
@@ -139,17 +143,19 @@ through GitHub Actions. Each module triggers its own workflow scoped by a
 runtime-specific `paths` filter, so a Docker change does not run unrelated
 module checks.
 
-| Workflow | Docker scope | Validates |
+| Workflow | Scope | Validates |
 |---|---|---|
-| `web-server.yml` | `modules/web-server/docker/**` | Custom image build |
+| `web-server.yml` | `modules/web-server/docker/**`, `modules/web-server/kubernetes/**` | Custom image build (Docker); chart lint and template render (Kubernetes) |
 | `file-transfer.yml` | `modules/file-transfer/docker/**` | Compose configuration and image references |
 | `dns.yml` | `modules/dns/docker/**` | Compose configuration and image references |
 | `reverse-proxy.yml` | `modules/reverse-proxy/docker/**` | Compose configuration and image references |
 | `full-infra.yml` | Docker stack and module Docker paths | Full-stack Compose config/build and Docker/EC2 Terraform |
-| `pull-request.yml` | Changed Docker paths | Path-scoped module and full-stack Docker validation |
+| `pull-request.yml` | Changed Docker and Kubernetes paths | Path-scoped module and full-stack validation, both runtimes |
 
-Kubernetes CI will be added independently when Helm charts and EKS Terraform
-are implemented. It will not replace the existing Docker validation.
+Kubernetes CI is added independently per module as each Helm chart becomes
+functional, following the same roadmap order as the migration itself. It does
+not replace Docker validation — both runtimes are validated in the same
+per-module workflow file, as independent jobs.
 
 See [`continuous-integration.md`](continuous-integration.md) for the full
 implementation and design decisions.
@@ -162,68 +168,81 @@ implementation and design decisions.
 ├── AGENTS.md
 ├── banner.png
 ├── context
-│   ├── current-iteration.md
-│   ├── decisions-log.md
+│   ├── current-iteration.md
+│   ├── decisions-log.md
 ├── continuous-integration.md
 ├── CONTRIBUTING.md
 ├── environments
-│   ├── docker
-│   │   ├── dev
-│   │   │   └── setup.md
-│   │   └── prod
-│   │       └── setup.md
-│   ├── kubernetes
-│   │   ├── README.md
-│   │   ├── dev
-│   │   │   └── setup.md
-│   │   └── prod
-│   │       ├── setup.md
-│   │       ├── resource-quota.yaml
-│   │       ├── limit-range.yaml
-│   │       └── rbac-prod-viewer.yaml  
+│   ├── docker
+│   │   ├── dev
+│   │   │   └── setup.md
+│   │   └── prod
+│   │       └── setup.md
+│   ├── kubernetes
+│   │   ├── dev
+│   │   │   └── setup.md
+│   │   └── prod
+│   │       ├── limit-range.yaml
+│   │       ├── rbac-prod-viewer.yaml
+│   │       ├── resource-quota.yaml
+│   │       └── setup.md
+│   └── README.md
 ├── LICENSE
 ├── modules
-│   ├── dns
-│   │   ├── docker
-│   │   │   ├── configs
-│   │   │   ├── dns-docker.md
-│   │   │   ├── docker-compose.prod.yml
-│   │   │   └── docker-compose.yml
-│   │   └── README.md
-│   ├── file-transfer
-│   │   ├── docker
-│   │   │   ├── configs
-│   │   │   ├── data
-│   │   │   ├── docker-compose.prod.yml
-│   │   │   ├── docker-compose.yml
-│   │   │   └── file-transfer-docker.md
-│   │   └── README.md
-│   ├── reverse-proxy
-│   │   ├── docker
-│   │   │   ├── configs
-│   │   │   ├── docker-compose.prod.yml
-│   │   │   ├── docker-compose.yml
-│   │   │   └── reverse-proxy-docker.md
-│   │   └── README.md
-│   └── web-server
-│       ├── docker
-│       │   ├── configs
-│       │   ├── docker-compose.prod.yml
-│       │   ├── docker-compose.yml
-│       │   ├── Dockerfile
-│       │   └── web-server-docker.md
-│       └── README.md
+│   ├── dns
+│   │   ├── docker
+│   │   │   ├── configs
+│   │   │   │   └── bind
+│   │   │   ├── dns-docker.md
+│   │   │   ├── docker-compose.prod.yml
+│   │   │   └── docker-compose.yml
+│   │   └── README.md
+│   ├── file-transfer
+│   │   ├── docker
+│   │   │   ├── configs
+│   │   │   │   ├── keys
+│   │   │   │   └── ssh
+│   │   │   ├── data
+│   │   │   │   └── upload
+│   │   │   ├── docker-compose.prod.yml
+│   │   │   ├── docker-compose.yml
+│   │   │   └── file-transfer-docker.md
+│   │   └── README.md
+│   ├── reverse-proxy
+│   │   ├── docker
+│   │   │   ├── configs
+│   │   │   │   └── traefik
+│   │   │   ├── docker-compose.prod.yml
+│   │   │   ├── docker-compose.yml
+│   │   │   └── reverse-proxy-docker.md
+│   │   └── README.md
+│   └── web-server
+│       ├── docker
+│       │   ├── configs
+│       │   │   ├── html
+│       │   │   └── nginx
+│       │   ├── docker-compose.prod.yml
+│       │   ├── docker-compose.yml
+│       │   ├── Dockerfile
+│       │   └── web-server-docker.md
+│       ├── kubernetes
+│       │   ├── helm
+│       │   │   └── web-server
+│       │   └── web-server-kubernetes.md
+│       └── README.md
 ├── README.md
 └── stacks
     └── full-infra
         ├── docker
-        │   ├── automation/
-        │   ├── automation.md
-        │   ├── docker-compose.prod.yml
-        │   └── full-infra-docker.md
+        │   ├── automation
+        │   │   └── terraform
+        │   ├── automation.md
+        │   ├── docker-compose.prod.yml
+        │   └── full-infra-docker.md
         ├── kubernetes
-        │   ├── automation/
-        │   ├── automation.md
-        │   └── full-infra-kubernetes.md
+        │   ├── automation
+        │   │   └── terraform
+        │   ├── automation.md
+        │   └── full-infra-kubernetes.md
         └── README.md
 ```

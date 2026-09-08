@@ -1,0 +1,14 @@
+# Deploy to:   EKS (full-infra-dev / full-infra-prod)
+# Apply:       helm install / helm upgrade
+# Module:      web-server
+# Requires:    none
+#
+# Helm chart metadata for the web-server module.
+# Parameters modified from baseline: none
+
+apiVersion: v2
+name: web-server
+description: Nginx-based web-server module, Kubernetes/Helm implementation
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

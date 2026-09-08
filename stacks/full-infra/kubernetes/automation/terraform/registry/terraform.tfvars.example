@@ -1,0 +1,10 @@
+# Deploy to:   AWS (registry state)
+# Apply:       terraform apply -var-file=terraform.tfvars
+# Module:      web-server
+# Requires:    variables.tf
+#
+# Example values file. Copy to terraform.tfvars (gitignored) and fill in.
+# Parameters modified from baseline: none
+
+aws_region = "<same-region-as-cluster>"
+aws_profile = "multi-lab-admin"

@@ -4,9 +4,9 @@ Static content delivery via Nginx — HTTP only. TLS termination is handled upst
 
 ## Implementation
 
-| Environment | Technology | Doc |
-|---|---|---|
-| dev | Custom image (Dockerfile) — Nginx unprivileged, HTTP only | [./docker/web-server-docker.md](./docker/web-server-docker.md) |
-| prod | Custom image (Dockerfile) — Nginx unprivileged, HTTP only | [./docker/web-server-docker.md](./docker/web-server-docker.md) |
+| Runtime | Environment | Technology | Doc |
+|---|---|---|---|
+| Docker | dev / prod | Custom image (Dockerfile) — Nginx unprivileged, HTTP only | [./docker/web-server-docker.md](./docker/web-server-docker.md) |
+| Kubernetes | dev / prod | Helm chart on Amazon EKS — same image, ClusterIP Service | [./kubernetes/web-server-kubernetes.md](./kubernetes/web-server-kubernetes.md) |
 
 **Infrastructure & AWS native equivalent:** [`modules/web-server`](https://github.com/Bios-Mod/build-your-infra/tree/main/modules/web-server)

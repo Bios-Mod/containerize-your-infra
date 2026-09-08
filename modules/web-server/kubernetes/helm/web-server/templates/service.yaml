@@ -1,0 +1,25 @@
+# Deploy to:   EKS (full-infra-dev / full-infra-prod)
+# Apply:       helm install / helm upgrade
+# Module:      web-server
+# Requires:    deployment.yaml (matching selector labels)
+#
+# ClusterIP Service exposing web-server internally on 8080. External exposure
+# is handled by the reverse-proxy module (Ingress Controller), not here.
+# Parameters modified from baseline: none
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-web-server
+  labels:
+    app.kubernetes.io/name: web-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/name: web-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.targetPort }}
+      protocol: TCP

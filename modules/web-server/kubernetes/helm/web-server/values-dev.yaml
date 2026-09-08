@@ -1,0 +1,18 @@
+# Deploy to:   EKS, namespace full-infra-dev
+# Apply:       helm install / helm upgrade -f values-dev.yaml
+# Module:      web-server
+# Requires:    values.yaml (baseline)
+#
+# Dev-only overrides. Only real differences from baseline.
+# Parameters modified from baseline: image.tag, resources (lighter than prod)
+
+image:
+  tag: dev
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 32Mi
+  limits:
+    cpu: 100m
+    memory: 64Mi
