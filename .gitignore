@@ -47,3 +47,9 @@ crash.*.log
 
 # cursorignore
 .cursorignore
+
+# bootstrap
+bootstrap-up.sh
+bootstrap-down.sh
+
+modules/reverse-proxy/kubernetes/helm/reverse-proxy/charts/

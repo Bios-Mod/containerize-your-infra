@@ -1,0 +1,16 @@
+# Deploy to:   EKS, namespace full-infra-dev
+# Apply:       helm install / helm upgrade -f values-dev.yaml
+# Module:      reverse-proxy
+# Requires:    values.yaml (baseline)
+#
+# Dev-only overrides. Only real differences from baseline.
+# Parameters modified from baseline: none — ClusterIP is already the baseline
+# default, kept explicit here for clarity and to mirror web-server's pattern
+# of an env-specific file existing even with a thin diff.
+
+traefik:
+  providers:
+    kubernetesCRD:
+      namespaces: [full-infra-dev]
+  ingressClass:
+    enabled: false

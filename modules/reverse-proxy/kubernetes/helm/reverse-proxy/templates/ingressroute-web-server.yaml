@@ -1,0 +1,26 @@
+# Deploy to:   EKS (full-infra-dev / full-infra-prod)
+# Apply:       helm install / helm upgrade
+# Module:      reverse-proxy
+# Requires:    web-server Helm release already deployed in the same namespace
+#              (Service name must match backendServiceName in values.yaml)
+#
+# IngressRoute forwarding websecure (:443) traffic to the web-server Service.
+# This is the concrete cross-module dependency: if web-server is not deployed
+# in this namespace, this route applies cleanly but has zero healthy targets.
+# Parameters modified from baseline: none
+
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ .Release.Name }}-web-server
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`{{ .Values.reverseProxy.hostname }}`)
+      kind: Rule
+      services:
+        - name: {{ .Values.reverseProxy.backendServiceName }}
+          port: {{ .Values.reverseProxy.backendServicePort }}
+  tls:
+    secretName: {{ .Values.reverseProxy.tlsSecretName }}
