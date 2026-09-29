@@ -1,0 +1,21 @@
+# Deploy to:   EKS, namespace full-infra-prod
+# Apply:       helm install / helm upgrade -f values-prod.yaml
+# Module:      reverse-proxy
+# Requires:    values.yaml (baseline)
+#
+# Prod-only overrides. Only real differences from baseline.
+# Parameters modified from baseline: traefik.service.type (LoadBalancer —
+# provisions a real AWS Classic ELB automatically, no AWS Load Balancer
+# Controller involved), traefik.providers.kubernetesCRD.namespaces (this
+# Traefik only watches its own namespace), traefik.ingressClass.enabled
+# (false — IngressRoute CRDs are used, and the IngressClass is cluster-scoped,
+# so a second release would collide with the first)
+
+traefik:
+  service:
+    type: LoadBalancer
+  providers:
+    kubernetesCRD:
+      namespaces: [full-infra-prod]
+  ingressClass:
+    enabled: false

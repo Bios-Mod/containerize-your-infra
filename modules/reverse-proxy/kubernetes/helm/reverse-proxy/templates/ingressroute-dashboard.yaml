@@ -1,0 +1,27 @@
+# Deploy to:   EKS (full-infra-dev / full-infra-prod)
+# Apply:       helm install / helm upgrade
+# Module:      reverse-proxy
+# Requires:    reverse-proxy-tls Secret, reverse-proxy-dashboard-auth Secret (Step 2, Step 4)
+#
+# IngressRoute exposing the Traefik dashboard on websecure (:443), protected
+# by the BasicAuth middleware. Equivalent to the Docker doc's label-based
+# dashboard router in dynamic.yml.
+# Parameters modified from baseline: none
+
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ .Release.Name }}-dashboard
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`{{ .Values.reverseProxy.hostname }}`) && PathPrefix(`/dashboard`)
+      kind: Rule
+      services:
+        - name: api@internal
+          kind: TraefikService
+      middlewares:
+        - name: {{ .Release.Name }}-auth-dashboard
+  tls:
+    secretName: {{ .Values.reverseProxy.tlsSecretName }}

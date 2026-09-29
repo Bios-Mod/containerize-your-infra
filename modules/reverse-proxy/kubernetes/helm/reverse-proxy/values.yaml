@@ -1,0 +1,27 @@
+# Deploy to:   EKS (full-infra-dev / full-infra-prod)
+# Apply:       helm install / helm upgrade
+# Module:      reverse-proxy
+# Requires:    reverse-proxy-tls Secret created in the target namespace (Step 2),
+#              web-server release already deployed in the same namespace
+#
+# Baseline values shared by dev and prod. Environment differences live in
+# values-dev.yaml / values-prod.yaml and override only what actually differs.
+# Parameters modified from baseline: none
+#
+# Note: dashboard credentials are never set here — the BasicAuth hash lives in
+# a Kubernetes Secret referenced by the Middleware template, not in values.
+
+traefik:
+  ingressRoute:
+    dashboard:
+      enabled: false # dashboard exposure is handled by this chart's own IngressRoute
+
+  service:
+    type: ClusterIP
+
+reverseProxy:
+  hostname: web.local # TODO confirm real ELB DNS name after first prod install
+  tlsSecretName: reverse-proxy-tls
+  dashboardAuthSecretName: reverse-proxy-dashboard-auth
+  backendServiceName: web-server-web-server # matches web-server chart's Service name suffix
+  backendServicePort: 8080

@@ -1,0 +1,22 @@
+# Deploy to:   EKS (full-infra-dev / full-infra-prod)
+# Apply:       helm dependency build
+# Module:      reverse-proxy
+# Requires:    none
+#
+# Helm chart metadata for the reverse-proxy module. Wraps the official
+# traefik/traefik chart as a dependency instead of reimplementing Traefik's
+# Deployment/RBAC from scratch. The traefik chart already ships its CRDs
+# (IngressRoute, Middleware), so traefik-crds is not declared.
+# Parameters modified from baseline: none
+
+apiVersion: v2
+name: reverse-proxy
+description: Traefik-based reverse proxy module, Kubernetes/Helm implementation
+type: application
+version: 0.1.0
+appVersion: "3.7.13"
+
+dependencies:
+  - name: traefik
+    version: "41.5.0"
+    repository: "https://traefik.github.io/charts"
