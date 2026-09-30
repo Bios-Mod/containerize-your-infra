@@ -127,7 +127,7 @@ covering both runtimes in one file with two independent jobs.
 
 `full-infra.yml` triggers on Docker stack paths, Docker artefacts from modules,
 or changes to its workflow definition — Kubernetes/EKS full-stack validation
-is added when the umbrella chart exists (roadmap Fase 8).
+is added when the umbrella chart exists.
 
 `pull-request.yml` triggers on pull requests targeting `main`. It detects the
 Docker module and stack paths affected by the diff and runs only the
@@ -144,7 +144,7 @@ this workflow incrementally, alongside each module's Helm job.
 | `docker/setup-buildx-action@v4` | `web-server.yml`, `full-infra.yml`, `pull-request.yml` | Enables BuildKit for Docker image builds |
 | `docker/build-push-action@v7` | `web-server.yml`, `pull-request.yml` | Builds the custom web-server image with `push: false` |
 | `hashicorp/setup-terraform@v4` | `full-infra.yml` | Installs Terraform for format and validation checks |
-| `azure/setup-helm@v4` | `web-server.yml` (and future Kubernetes module workflows) | Installs Helm for chart lint and template validation |
+| `azure/setup-helm@v5` | `web-server.yml` (and future Kubernetes module workflows) | Installs Helm for chart lint and template validation |
 
 ---
 
