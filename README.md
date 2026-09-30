@@ -97,9 +97,6 @@ Set up the target environment before applying any module:
 - **Kubernetes prod** — EKS namespace `full-infra-prod` →
   [`environments/kubernetes/prod/setup.md`](environments/kubernetes/prod/setup.md)
 
-Kubernetes environment procedures will be added under
-`environments/kubernetes/` when the EKS platform is implemented.
-
 ---
 
 ## Modules
@@ -109,7 +106,7 @@ Kubernetes environment procedures will be added under
 | Web Server | Docker · Kubernetes | Nginx + HTTPS + reverse proxy | [`modules/web-server/`](modules/web-server/README.md) |
 | File Transfer | Docker | SFTP (OpenSSH subsystem) | [`modules/file-transfer/`](modules/file-transfer/README.md) |
 | DNS | Docker | BIND9 | [`modules/dns/`](modules/dns/README.md) |
-| Reverse Proxy | Docker | Nginx proxy block | [`modules/reverse-proxy/`](modules/reverse-proxy/README.md) |
+| Reverse Proxy | Docker · Kubernetes | Nginx proxy block | [`modules/reverse-proxy/`](modules/reverse-proxy/README.md) |
 | Full Infrastructure Stack | Docker | All modules combined | [`stacks/full-infra/`](stacks/full-infra/README.md) |
 
 ---
@@ -148,7 +145,7 @@ module checks.
 | `web-server.yml` | `modules/web-server/docker/**`, `modules/web-server/kubernetes/**` | Custom image build (Docker); chart lint and template render (Kubernetes) |
 | `file-transfer.yml` | `modules/file-transfer/docker/**` | Compose configuration and image references |
 | `dns.yml` | `modules/dns/docker/**` | Compose configuration and image references |
-| `reverse-proxy.yml` | `modules/reverse-proxy/docker/**` | Compose configuration and image references |
+| `reverse-proxy.yml` | `modules/reverse-proxy/docker/**`, `modules/reverse-proxy/kubernetes/**` | Compose configuration and image references (Docker); chart dependency resolution, lint and template render (Kubernetes) |
 | `full-infra.yml` | Docker stack and module Docker paths | Full-stack Compose config/build and Docker/EC2 Terraform |
 | `pull-request.yml` | Changed Docker and Kubernetes paths | Path-scoped module and full-stack validation, both runtimes |
 
@@ -215,6 +212,10 @@ implementation and design decisions.
 │   │   │   ├── docker-compose.prod.yml
 │   │   │   ├── docker-compose.yml
 │   │   │   └── reverse-proxy-docker.md
+│   │   ├── kubernetes
+│   │   │   ├── helm
+│   │   │   │   └── reverse-proxy
+│   │   │   └── reverse-proxy-kubernetes.md
 │   │   └── README.md
 │   └── web-server
 │       ├── docker
