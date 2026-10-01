@@ -1,0 +1,81 @@
+# Deploy to: EKS (full-infra-dev / full-infra-prod)
+# Apply: helm install / helm upgrade
+# Module: dns
+# Requires: values.yaml
+
+# BIND9 configuration and the lab.local zone. Replaces the Docker bind mounts
+# from configs/bind/ (named.conf, named.conf.options, named.conf.local, db.lab.local).
+# Parameters modified from baseline: listen port from values, recursion ACL from values,
+# CNAME records to cluster Services, cluster.local forward zone, no reverse zone
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-dns
+  labels:
+    app.kubernetes.io/name: dns
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  named.conf: |
+    include "/etc/bind/named.conf.options";
+    include "/etc/bind/named.conf.local";
+
+  named.conf.options: |
+    acl "lab-clients" {
+    {{- range .Values.recursion.allowedCIDRs }}
+        {{ . }};
+    {{- end }}
+        localhost;
+    };
+
+    options {
+        directory "/var/cache/bind";
+        version "not available";
+
+        recursion yes;
+        validate-except { "cluster.local"; };        
+        allow-recursion { lab-clients; };
+        allow-query { any; };
+        allow-query-cache { lab-clients; };
+
+        forwarders {
+    {{- range .Values.forwarders }}
+            {{ . }};
+    {{- end }}
+        };
+        forward only;
+
+        listen-on port {{ .Values.dns.containerPort }} { any; };
+        listen-on-v6 port {{ .Values.dns.containerPort }} { any; };
+
+        auth-nxdomain no;
+    };
+
+  named.conf.local: |
+    zone "{{ .Values.zone.name }}" {
+        type master;
+        file "/etc/bind/db.{{ .Values.zone.name }}";
+    };
+
+    // Names under cluster.local are answered by the cluster resolver (CoreDNS).
+    // Needed so the CNAME targets in the lab zone can be chased to an IP.
+    zone "cluster.local" {
+        type forward;
+        forward only;
+        forwarders { {{ .Values.kubeDns.ip }}; };
+    };
+
+  db.{{ .Values.zone.name }}: |
+    $TTL 86400
+    @   IN  SOA {{ .Values.zone.hosts.dns }}.{{ .Release.Namespace }}.svc.cluster.local. admin.{{ .Values.zone.name }}. (
+            {{ .Values.zone.serial | int64 }} ; Serial
+            3600       ; Refresh
+            1800       ; Retry
+            604800     ; Expire
+            86400 )    ; Negative cache TTL
+
+    ; NS target is out of zone on purpose: an NS host cannot be a CNAME.
+        IN  NS  {{ .Values.zone.hosts.dns }}.{{ .Release.Namespace }}.svc.cluster.local.
+
+    dns     IN  CNAME {{ .Values.zone.hosts.dns }}.{{ .Release.Namespace }}.svc.cluster.local.
+    web     IN  CNAME {{ .Values.zone.hosts.web }}.{{ .Release.Namespace }}.svc.cluster.local.

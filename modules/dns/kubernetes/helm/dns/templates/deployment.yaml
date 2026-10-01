@@ -1,0 +1,91 @@
+# Deploy to: EKS (full-infra-dev / full-infra-prod)
+# Apply: helm install / helm upgrade
+# Module: dns
+# Requires: Chart.yaml, values.yaml, templates/configmap.yaml
+
+# Deployment for BIND9. Mirrors Docker hardening: non-root, cap_drop ALL,
+# no-new-privileges, read-only root fs, writable paths on emptyDir.
+# Parameters modified from baseline: none
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-dns
+  labels:
+    app.kubernetes.io/name: dns
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dns
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dns
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      securityContext:
+        runAsNonRoot: {{ .Values.securityContext.runAsNonRoot }}
+        runAsUser: {{ .Values.securityContext.runAsUser }}
+        runAsGroup: {{ .Values.securityContext.runAsGroup }}
+      containers:
+        - name: dns
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["-g"]
+          ports:
+            - name: dns-udp
+              containerPort: {{ .Values.dns.containerPort }}
+              protocol: UDP
+            - name: dns-tcp
+              containerPort: {{ .Values.dns.containerPort }}
+              protocol: TCP
+          securityContext:
+            readOnlyRootFilesystem: {{ .Values.securityContext.readOnlyRootFilesystem }}
+            allowPrivilegeEscalation: {{ .Values.securityContext.allowPrivilegeEscalation }}
+            capabilities:
+              drop:
+{{- toYaml .Values.securityContext.capabilities.drop | nindent 16 }}
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - dig @127.0.0.1 -p {{ .Values.dns.containerPort }} {{ .Values.zone.name }} SOA +time=2 +tries=1 +short | grep -q .
+            initialDelaySeconds: {{ .Values.probes.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.failureThreshold }}
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - dig @127.0.0.1 -p {{ .Values.dns.containerPort }} {{ .Values.zone.name }} SOA +time=2 +tries=1 +short | grep -q .
+            initialDelaySeconds: {{ .Values.probes.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.failureThreshold }}
+          resources:
+{{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/bind
+              readOnly: true
+{{- range .Values.tmpfs }}
+            - name: {{ .mountPath | trimPrefix "/" | replace "/" "-" }}
+              mountPath: {{ .mountPath }}
+{{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-dns
+{{- range .Values.tmpfs }}
+        - name: {{ .mountPath | trimPrefix "/" | replace "/" "-" }}
+          emptyDir:
+            medium: Memory
+{{- end }}

@@ -1,0 +1,15 @@
+# Deploy to: EKS, namespace full-infra-dev
+# Apply: helm install / helm upgrade -f values-dev.yaml
+# Module: dns
+# Requires: values.yaml (baseline)
+
+# Dev-only overrides. Only real differences from baseline.
+# Parameters modified from baseline: resources (lighter than prod)
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 64Mi
+  limits:
+    cpu: 100m
+    memory: 96Mi

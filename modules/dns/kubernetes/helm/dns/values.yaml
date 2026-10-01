@@ -1,0 +1,75 @@
+# Deploy to: EKS (full-infra-dev / full-infra-prod)
+# Apply: helm install / helm upgrade
+# Module: dns
+# Requires: ECR repository with the custom dns image pushed (Step 1 of the module doc)
+
+# Baseline values shared by dev and prod. Environment differences live in
+# values-dev.yaml / values-prod.yaml and override only what actually differs.
+# Parameters modified from baseline: custom image from ECR, listen port 5353 (Service keeps 53),
+# recursion restricted to RFC1918 ranges, kube-dns forward for cluster.local, no reverse zone
+
+# Note: kubeDns.ip is the ClusterIP of the kube-dns Service of the EKS cluster.
+# Confirm it before the first install (Step 2 of the module doc).
+
+replicaCount: 1
+
+image:
+  repository: 541801281490.dkr.ecr.eu-west-1.amazonaws.com/containerize-your-infra/dns
+  tag: "v1"
+  pullPolicy: IfNotPresent
+
+dns:
+  containerPort: 5353
+  servicePort: 53
+
+zone:
+  name: lab.local
+  serial: 2026093001
+  hosts:
+    dns: dns-dns
+    web: web-server-web-server
+
+forwarders:
+  - 8.8.8.8
+  - 8.8.4.4
+
+kubeDns:
+  ip: 172.20.0.10
+
+recursion:
+  allowedCIDRs:
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+
+service:
+  type: ClusterIP
+
+probes:
+  initialDelaySeconds: 5
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 101
+  runAsGroup: 101
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+tmpfs:
+  - mountPath: /var/cache/bind
+  - mountPath: /var/run/named
+  - mountPath: /tmp

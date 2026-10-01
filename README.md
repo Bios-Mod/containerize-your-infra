@@ -105,7 +105,7 @@ Set up the target environment before applying any module:
 |---|---|---|---|
 | Web Server | Docker · Kubernetes | Nginx + HTTPS + reverse proxy | [`modules/web-server/`](modules/web-server/README.md) |
 | File Transfer | Docker | SFTP (OpenSSH subsystem) | [`modules/file-transfer/`](modules/file-transfer/README.md) |
-| DNS | Docker | BIND9 | [`modules/dns/`](modules/dns/README.md) |
+| DNS | Docker · Kubernetes | BIND9 | [`modules/dns/`](modules/dns/README.md) |
 | Reverse Proxy | Docker · Kubernetes | Nginx proxy block | [`modules/reverse-proxy/`](modules/reverse-proxy/README.md) |
 | Full Infrastructure Stack | Docker | All modules combined | [`stacks/full-infra/`](stacks/full-infra/README.md) |
 
@@ -144,7 +144,7 @@ module checks.
 |---|---|---|
 | `web-server.yml` | `modules/web-server/docker/**`, `modules/web-server/kubernetes/**` | Custom image build (Docker); chart lint and template render (Kubernetes) |
 | `file-transfer.yml` | `modules/file-transfer/docker/**` | Compose configuration and image references |
-| `dns.yml` | `modules/dns/docker/**` | Compose configuration and image references |
+| `dns.yml` | `modules/dns/docker/**`, `modules/dns/kubernetes/**` | Compose configuration and image references (Docker); custom image build, chart lint and template render (Kubernetes) |
 | `reverse-proxy.yml` | `modules/reverse-proxy/docker/**`, `modules/reverse-proxy/kubernetes/**` | Compose configuration and image references (Docker); chart dependency resolution, lint and template render (Kubernetes) |
 | `full-infra.yml` | Docker stack and module Docker paths | Full-stack Compose config/build and Docker/EC2 Terraform |
 | `pull-request.yml` | Changed Docker and Kubernetes paths | Path-scoped module and full-stack validation, both runtimes |
@@ -186,14 +186,19 @@ implementation and design decisions.
 │   └── README.md
 ├── LICENSE
 ├── modules
-│   ├── dns
-│   │   ├── docker
-│   │   │   ├── configs
-│   │   │   │   └── bind
-│   │   │   ├── dns-docker.md
-│   │   │   ├── docker-compose.prod.yml
-│   │   │   └── docker-compose.yml
-│   │   └── README.md
+│   ├── dns
+│   │   ├── docker
+│   │   │   ├── configs
+│   │   │   │   └── bind
+│   │   │   ├── dns-docker.md
+│   │   │   ├── docker-compose.prod.yml
+│   │   │   └── docker-compose.yml
+│   │   ├── kubernetes
+│   │   │   ├── dns-kubernetes.md
+│   │   │   ├── Dockerfile
+│   │   │   └── helm
+│   │   │       └── dns
+│   │   └── README.md
 │   ├── file-transfer
 │   │   ├── docker
 │   │   │   ├── configs
