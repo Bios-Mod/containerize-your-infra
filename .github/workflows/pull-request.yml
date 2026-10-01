@@ -285,3 +285,30 @@ jobs:
       pull-requests: write
 
     steps:
+      - name: Publish CI summary
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const results = {
+              "web-server (docker)": "${{ needs.validate-web-server-docker.result }}",
+              "web-server (helm)": "${{ needs.validate-web-server-helm.result }}",
+              "file-transfer": "${{ needs.validate-file-transfer.result }}",
+              "dns (docker)": "${{ needs.validate-dns-docker.result }}",
+              "dns (helm)": "${{ needs.validate-dns-helm.result }}",
+              "reverse-proxy (docker)": "${{ needs.validate-reverse-proxy-docker.result }}",
+              "reverse-proxy (helm)": "${{ needs.validate-reverse-proxy-helm.result }}",
+              "full-infra": "${{ needs.validate-full-infra.result }}"
+            };
+
+            let body = "### CI Summary\n\n| Module | Result |\n|---|---|\n";
+
+            for (const [module, result] of Object.entries(results)) {
+              body += `| ${module} | ${result} |\n`;
+            }
+
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
