@@ -1,0 +1,17 @@
+# Deploy to: EKS, namespace full-infra-prod
+# Apply: helm install / helm upgrade -f values-prod.yaml
+# Module: dns
+# Requires: values.yaml (baseline)
+
+# Prod-only overrides. Only real differences from baseline.
+# Parameters modified from baseline: replicaCount, resources (enforced limits)
+
+replicaCount: 2
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 96Mi
+  limits:
+    cpu: 300m
+    memory: 192Mi

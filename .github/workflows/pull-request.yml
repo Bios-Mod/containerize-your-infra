@@ -4,9 +4,10 @@
 # Requires: none
 
 # Detects changed module paths in the PR diff and runs the corresponding
-# validation jobs conditionally. Full-infra validation always runs. Writes
-# a per-module pass/fail summary into the PR.
-# Parameters modified from baseline: web-server and reverse-proxy split into
+# validation jobs conditionally, per runtime. Full-stack Docker validation runs
+# only when stack or module Docker paths change. Writes a per-module pass/fail
+# summary into the PR.
+# Parameters modified from baseline: web-server, reverse-proxy and dns split into
 # independent docker/helm path filters and jobs; summary extended accordingly.
 
 name: pull-request
@@ -22,7 +23,8 @@ jobs:
       web-server-docker: ${{ steps.filter.outputs.web-server-docker }}
       web-server-helm: ${{ steps.filter.outputs.web-server-helm }}
       file-transfer: ${{ steps.filter.outputs.file-transfer }}
-      dns: ${{ steps.filter.outputs.dns }}
+      dns-docker: ${{ steps.filter.outputs.dns-docker }}
+      dns-helm: ${{ steps.filter.outputs.dns-helm }}
       reverse-proxy-docker: ${{ steps.filter.outputs.reverse-proxy-docker }}
       reverse-proxy-helm: ${{ steps.filter.outputs.reverse-proxy-helm }}
       full-infra: ${{ steps.filter.outputs.full-infra }}
@@ -51,8 +53,13 @@ jobs:
               - 'modules/file-transfer/README.md'
               - '.github/workflows/file-transfer.yml'
 
-            dns:
+            dns-docker:
               - 'modules/dns/docker/**'
+              - 'modules/dns/README.md'
+              - '.github/workflows/dns.yml'
+
+            dns-helm:
+              - 'modules/dns/kubernetes/**'
               - 'modules/dns/README.md'
               - '.github/workflows/dns.yml'
 
@@ -135,9 +142,9 @@ jobs:
       - name: Validate production Compose syntax
         run: docker compose -f docker-compose.prod.yml config
 
-  validate-dns:
+  validate-dns-docker:
     needs: detect-changes
-    if: needs.detect-changes.outputs.dns == 'true'
+    if: needs.detect-changes.outputs.dns-docker == 'true'
     runs-on: ubuntu-24.04-arm
     defaults:
       run:
@@ -152,6 +159,43 @@ jobs:
 
       - name: Validate production Compose syntax
         run: docker compose -f docker-compose.prod.yml config
+
+  validate-dns-helm:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.dns-helm == 'true'
+    runs-on: ubuntu-24.04-arm
+    defaults:
+      run:
+        working-directory: modules/dns/kubernetes/helm/dns/
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build custom dns image
+        uses: docker/build-push-action@v7
+        with:
+          context: modules/dns/kubernetes/
+          push: false
+          tags: dns:pr
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+
+      - name: Helm lint (dev)
+        run: helm lint . -f values.yaml -f values-dev.yaml
+
+      - name: Helm lint (prod)
+        run: helm lint . -f values.yaml -f values-prod.yaml
+
+      - name: Helm template (dev)
+        run: helm template dns . -f values.yaml -f values-dev.yaml
+
+      - name: Helm template (prod)
+        run: helm template dns . -f values.yaml -f values-prod.yaml
 
   validate-reverse-proxy-docker:
     needs: detect-changes
@@ -230,7 +274,8 @@ jobs:
       - validate-web-server-docker
       - validate-web-server-helm
       - validate-file-transfer
-      - validate-dns
+      - validate-dns-docker
+      - validate-dns-helm
       - validate-reverse-proxy-docker
       - validate-reverse-proxy-helm
       - validate-full-infra
@@ -240,29 +285,3 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: Publish CI summary
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const results = {
-              "web-server (docker)": "${{ needs.validate-web-server-docker.result }}",
-              "web-server (helm)": "${{ needs.validate-web-server-helm.result }}",
-              "file-transfer": "${{ needs.validate-file-transfer.result }}",
-              "dns": "${{ needs.validate-dns.result }}",
-              "reverse-proxy (docker)": "${{ needs.validate-reverse-proxy-docker.result }}",
-              "reverse-proxy (helm)": "${{ needs.validate-reverse-proxy-helm.result }}",
-              "full-infra": "${{ needs.validate-full-infra.result }}"
-            };
-
-            let body = "### CI Summary\n\n| Module | Result |\n|---|---|\n";
-
-            for (const [module, result] of Object.entries(results)) {
-              body += `| ${module} | ${result} |\n`;
-            }
-
-            await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body
-            });

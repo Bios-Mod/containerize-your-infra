@@ -1,0 +1,30 @@
+# Deploy to: EKS (full-infra-dev / full-infra-prod)
+# Apply: helm install / helm upgrade
+# Module: dns
+# Requires: deployment.yaml (matching selector labels)
+
+# ClusterIP Service exposing BIND9 internally on 53 TCP and UDP (container port 5353).
+# No external exposure: DNS is an internal service in this cluster.
+# Parameters modified from baseline: none
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-dns
+  labels:
+    app.kubernetes.io/name: dns
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/name: dns
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: dns-udp
+      port: {{ .Values.dns.servicePort }}
+      targetPort: dns-udp
+      protocol: UDP
+    - name: dns-tcp
+      port: {{ .Values.dns.servicePort }}
+      targetPort: dns-tcp
+      protocol: TCP

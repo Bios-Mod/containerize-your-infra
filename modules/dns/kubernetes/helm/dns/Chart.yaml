@@ -1,0 +1,14 @@
+# Deploy to: EKS (full-infra-dev / full-infra-prod)
+# Apply: helm install / helm upgrade
+# Module: dns
+# Requires: none
+
+# Helm chart metadata for the dns module.
+# Parameters modified from baseline: none
+
+apiVersion: v2
+name: dns
+description: BIND9 authoritative zone and forwarding resolver, Kubernetes/Helm implementation
+type: application
+version: 0.1.0
+appVersion: "9.18.39"
