@@ -9,8 +9,7 @@
 # EKS/registry Terraform are validated only when their own paths change. Writes
 # a per-module pass/fail summary into the PR.
 # Parameters modified from baseline: full-infra-helm and
-# full-infra-terraform-kubernetes filters and jobs added; summary extended. .
-
+# full-infra-terraform-kubernetes filters and jobs added; summary extended.
 name: pull-request
 
 on:
