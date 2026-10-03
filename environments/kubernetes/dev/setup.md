@@ -546,8 +546,7 @@ resources that still have dependent ENIs from EKS. Elastic IPs are
 released explicitly because NAT Gateway deletion does not release its
 associated EIP automatically, and an unreleased EIP keeps billing per
 hour. This full teardown is run once the manual foundation is validated
-and documented, and again after the Terraform-automated version (Step 7 of
-the roadmap) is validated — the same "create, verify, destroy" discipline
+and documented, and again after the Terraform-automated version is validated — the same "create, verify, destroy" discipline
 used throughout this lab.
 
 ### Verification

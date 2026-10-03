@@ -1,0 +1,37 @@
+# Deploy to:   EKS, namespace full-infra-dev
+# Apply:       helm install / helm upgrade -f values.yaml -f values-dev.yaml
+# Module:      stacks/full-infra/kubernetes
+# Requires:    values.yaml (baseline)
+#
+# Dev-only overrides for the three modules. Reproduces, under each subchart
+# key, the deltas of modules/*/kubernetes/helm/*/values-dev.yaml.
+# Parameters modified from baseline: web-server image tag and resources,
+# dns resources, Traefik watched namespace and IngressClass
+
+web-server:
+  image:
+    tag: dev
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+reverse-proxy:
+  traefik:
+    providers:
+      kubernetesCRD:
+        namespaces: [full-infra-dev]
+    ingressClass:
+      enabled: false # cluster-scoped: a second release would collide with the first
+
+dns:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 96Mi

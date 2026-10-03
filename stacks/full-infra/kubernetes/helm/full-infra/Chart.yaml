@@ -1,0 +1,26 @@
+# Deploy to:   Kubernetes (Helm) — namespaces full-infra-dev and full-infra-prod
+# Apply:       helm dependency build, then helm install full-infra
+# Module:      stacks/full-infra/kubernetes
+# Requires:    modules/web-server, modules/reverse-proxy and modules/dns Helm charts
+#
+# Umbrella chart that deploys web-server, reverse-proxy and dns as one release.
+# Parameters modified from baseline: none
+#
+# Note: dependencies are local (file://) so the module charts remain the single
+#       source of truth. reverse-proxy carries its own traefik/traefik dependency.
+apiVersion: v2
+name: full-infra
+description: Umbrella chart for the containerize-your-infra Kubernetes stack
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+dependencies:
+  - name: web-server
+    version: 0.1.0
+    repository: file://../../../../../modules/web-server/kubernetes/helm/web-server
+  - name: reverse-proxy
+    version: 0.1.0
+    repository: file://../../../../../modules/reverse-proxy/kubernetes/helm/reverse-proxy
+  - name: dns
+    version: 0.1.0
+    repository: file://../../../../../modules/dns/kubernetes/helm/dns

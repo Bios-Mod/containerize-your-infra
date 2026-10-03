@@ -1,0 +1,12 @@
+dependencies:
+- name: web-server
+  repository: file://../../../../../modules/web-server/kubernetes/helm/web-server
+  version: 0.1.0
+- name: reverse-proxy
+  repository: file://../../../../../modules/reverse-proxy/kubernetes/helm/reverse-proxy
+  version: 0.1.0
+- name: dns
+  repository: file://../../../../../modules/dns/kubernetes/helm/dns
+  version: 0.1.0
+digest: sha256:3128a92abb3e2401f8613188e62cbbca7236f3a100c58ff747fccf8c3c308d9a
+generated: "2026-10-02T18:05:15.287916+02:00"

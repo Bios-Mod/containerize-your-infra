@@ -54,7 +54,6 @@ discussion avoids duplicated effort and keeps the lab coherent.
 - New service modules without prior Issue alignment
 - New automation tools or implementations without prior Issue alignment
 - GUI-based or non-CLI approaches
-- Kubernetes, Docker Swarm, or other orchestration content until explicitly opened in the repository roadmap
 
 ---
 

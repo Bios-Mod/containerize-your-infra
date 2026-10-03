@@ -1,13 +1,13 @@
 # Deploy to:   AWS (registry state)
 # Apply:       terraform apply
-# Module:      web-server
+# Module:      web-server, dns
 # Requires:    none
 #
 # Input variables for the registry Terraform state.
-# Parameters modified from baseline: none
+# Parameters modified from baseline: dns_repository_name added
 
 variable "aws_region" {
-  description = "AWS region where the ECR repository is created"
+  description = "AWS region where the ECR repositories are created"
   type        = string
 }
 
@@ -18,9 +18,15 @@ variable "aws_profile" {
 }
 
 variable "repository_name" {
-  description = "ECR repository name"
+  description = "ECR repository name for the web-server image"
   type        = string
   default     = "containerize-your-infra/web-server"
+}
+
+variable "dns_repository_name" {
+  description = "ECR repository name for the dns image"
+  type        = string
+  default     = "containerize-your-infra/dns"
 }
 
 variable "image_tag_mutability" {

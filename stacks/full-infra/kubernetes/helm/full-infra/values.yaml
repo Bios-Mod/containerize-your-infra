@@ -1,0 +1,26 @@
+# Deploy to:   EKS (full-infra-dev / full-infra-prod)
+# Apply:       helm install / helm upgrade -f values.yaml
+# Module:      stacks/full-infra/kubernetes
+# Requires:    Chart.yaml dependencies built (helm dependency build)
+#
+# Umbrella baseline shared by dev and prod. A subchart only reads the values
+# nested under its own name, so the module values.yaml files remain the
+# defaults and this file overrides only what changes under a single release.
+# Parameters modified from baseline: cross-module Service names
+#
+# Note: every module names its resources "<release>-<chart>". With a single
+# release called full-infra, the web-server Service becomes full-infra-web-server
+# and the dns Service full-infra-dns. The two modules that reference the
+# web-server Service by name are pointed at the new name here.
+# Image repositories are not set here: they depend on the AWS account and are
+# passed with --set at install time (see full-infra-kubernetes.md).
+
+reverse-proxy:
+  reverseProxy:
+    backendServiceName: full-infra-web-server
+
+dns:
+  zone:
+    hosts:
+      dns: full-infra-dns
+      web: full-infra-web-server

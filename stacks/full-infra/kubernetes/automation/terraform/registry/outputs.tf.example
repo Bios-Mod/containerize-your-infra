@@ -1,0 +1,28 @@
+# Deploy to:   AWS (registry state)
+# Apply:       terraform apply
+# Module:      web-server, dns
+# Requires:    ecr.tf
+#
+# Outputs for the registry state. repository_url and repository_arn keep their
+# original names (web-server) so existing references do not change.
+# Parameters modified from baseline: dns_repository_url and dns_repository_arn added
+
+output "repository_url" {
+  description = "Full ECR repository URL of the web-server image"
+  value       = aws_ecr_repository.web_server.repository_url
+}
+
+output "repository_arn" {
+  description = "ECR repository ARN of the web-server image"
+  value       = aws_ecr_repository.web_server.arn
+}
+
+output "dns_repository_url" {
+  description = "Full ECR repository URL of the dns image"
+  value       = aws_ecr_repository.dns.repository_url
+}
+
+output "dns_repository_arn" {
+  description = "ECR repository ARN of the dns image"
+  value       = aws_ecr_repository.dns.arn
+}

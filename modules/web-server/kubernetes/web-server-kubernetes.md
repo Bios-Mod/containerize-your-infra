@@ -19,7 +19,7 @@ service.
 
 > **No ConfigMap in this chart.** `nginx.conf` and `index.html` stay baked into the
 > image at build time, same as the Docker implementation. Externalizing static config
-> via ConfigMap is a pattern practiced in the `dns` module (Fase 6), where BIND9 zone
+> via ConfigMap is a pattern practiced in the `dns` module, where BIND9 zone
 > files justify it — not here.
 
 > **Chart files in `helm/web-server/`** contain only what this module needs. Paths are
@@ -33,7 +33,7 @@ service.
 |-------------|--------------------------------------------------------------------|
 | Base image  | `nginxinc/nginx-unprivileged:stable-alpine` (unchanged)            |
 | Registry    | Amazon ECR — `containerize-your-infra/web-server`, Terraform-managed, isolated state |
-| Cluster     | Amazon EKS (Fase 3 foundation)                                     |
+| Cluster     | Amazon EKS |
 | Namespaces  | `full-infra-dev`, `full-infra-prod`                                |
 | Port        | 8080 → 8080 (ClusterIP)                                            |
 | TLS         | None — handled by reverse-proxy module (out of scope here)         |
@@ -45,7 +45,7 @@ service.
 
 ## Before You Start — Cluster State (optional)
 
-These commands confirm the Fase 3 foundation is reachable before deploying anything new.
+These commands confirm the foundation is reachable before deploying anything new.
 
 ```bash
 kubectl get ns full-infra-dev full-infra-prod ingress-system
@@ -76,7 +76,7 @@ terraform apply
 ```
 
 📄 `stacks/full-infra/kubernetes/automation/terraform/registry/ecr.tf` — `aws_ecr_repository` resource, isolated state
-📄 `stacks/full-infra/kubernetes/automation/terraform/cluster/` — EKS platform Terraform, separate state (Fase 3), unaffected by this apply
+📄 `stacks/full-infra/kubernetes/automation/terraform/cluster/` — EKS platform Terraform, separate state, unaffected by this apply
 
 Once the repository exists, the image built from the existing `Dockerfile`
 (`modules/web-server/docker/Dockerfile`) is pushed to it:
@@ -228,7 +228,6 @@ targetPort 8080, selector matching the Deployment's `app.kubernetes.io/name` and
 `app.kubernetes.io/instance` labels.
 
 > No Ingress and no LoadBalancer in this chart. Only Traefik/Ingress (once migrated in
-> Fase 5) should reach this Service — same single-entry-point boundary as the Docker doc.
 
 📄 `modules/web-server/kubernetes/helm/web-server/templates/service.yaml`
 

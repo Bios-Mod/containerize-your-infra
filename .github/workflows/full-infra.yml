@@ -3,9 +3,12 @@
 # Module:      full-infra
 # Requires:    none
 #
-# Two independent jobs: Compose stack validation (config + build in stack
-# context) and Terraform static checks (fmt + validate, no AWS credentials).
-# Parameters modified from baseline: none
+# Four independent jobs: Compose stack validation (config + build in stack
+# context), Docker/EC2 Terraform static checks, umbrella chart validation (lint
+# and render for dev and prod) and EKS/registry Terraform static checks. No
+# cluster access and no AWS credentials.
+# Parameters modified from baseline: Kubernetes paths, helm and
+# terraform-kubernetes jobs added; compose and terraform jobs unchanged
 
 name: full-infra
 
@@ -14,7 +17,9 @@ on:
     branches: main
     paths:
       - "stacks/full-infra/docker/**"
+      - "stacks/full-infra/kubernetes/**"
       - "modules/**/docker/**"
+      - "modules/**/kubernetes/**"
       - ".github/workflows/full-infra.yml"
 
 jobs:
@@ -42,6 +47,76 @@ jobs:
     defaults:
       run:
         working-directory: stacks/full-infra/docker/automation/terraform
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+
+      - name: Terraform format check
+        run: terraform fmt -check
+
+      - name: Terraform init without backend
+        run: terraform init -backend=false
+
+      - name: Terraform validate
+        run: terraform validate
+
+  helm:
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+
+      - name: Add Traefik chart repository
+        run: helm repo add traefik https://traefik.github.io/charts
+
+      - name: Build reverse-proxy dependencies
+        run: helm dependency build modules/reverse-proxy/kubernetes/helm/reverse-proxy
+
+      - name: Build umbrella dependencies
+        working-directory: stacks/full-infra/kubernetes/helm/full-infra
+        run: helm dependency build
+
+      - name: Lint umbrella chart (dev and prod)
+        working-directory: stacks/full-infra/kubernetes/helm/full-infra
+        run: |
+          for ENV in dev prod; do
+            helm lint . -f values.yaml -f values-$ENV.yaml \
+              --set web-server.image.repository=registry.example.com/web-server \
+              --set dns.image.repository=registry.example.com/dns
+          done
+
+      - name: Render umbrella chart and check cross-module names
+        working-directory: stacks/full-infra/kubernetes/helm/full-infra
+        run: |
+          for ENV in dev prod; do
+            helm template full-infra . -n full-infra-$ENV -f values.yaml -f values-$ENV.yaml \
+              --set web-server.image.repository=registry.example.com/web-server \
+              --set dns.image.repository=registry.example.com/dns > /tmp/full-infra-$ENV.yaml
+            if grep -qE 'web-server-web-server|dns-dns' /tmp/full-infra-$ENV.yaml; then
+              echo "::error::Stale module Service name in the $ENV render"
+              exit 1
+            fi
+          done
+
+  terraform-kubernetes:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        stack:
+          - cluster
+          - registry
+    defaults:
+      run:
+        working-directory: stacks/full-infra/kubernetes/automation/terraform/${{ matrix.stack }}
 
     steps:
       - name: Checkout repository

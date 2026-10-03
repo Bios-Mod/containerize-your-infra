@@ -35,7 +35,7 @@ its behaviour on a different runtime, it does not redesign the service.
 | Parameter        | Value                                                                        |
 |------------------|------------------------------------------------------------------------------|
 | Image            | Custom image on Ubuntu 24.04 (`bind9` package), built for `linux/arm64`       |
-| Registry         | Amazon ECR — `containerize-your-infra/dns`, created by hand (outside Terraform) |
+| Registry         | Amazon ECR — `containerize-your-infra/dns`, created by the registry Terraform  |
 | Cluster          | Amazon EKS (foundation already provisioned, arm64 nodes)                      |
 | Namespaces       | `full-infra-dev`, `full-infra-prod`                                           |
 | Release name     | `dns` in both namespaces                                                      |
@@ -76,15 +76,16 @@ kubectl get svc web-server-web-server -n full-infra-prod
 ### What was done
 
 The official ISC image cannot run on this cluster, so the module builds its own. The ECR
-repository is created by hand, the image is built for `linux/arm64` from the module
-Dockerfile and pushed, and `REPO_URL` is kept for the next steps.
+repository is created with the registry Terraform, the image is built for `linux/arm64`
+from the module Dockerfile and pushed, and `REPO_URL` is kept for the next steps.
 
 ```bash
 REGION=eu-west-1
-aws ecr create-repository --repository-name containerize-your-infra/dns --region "$REGION"
+terraform -chdir=stacks/full-infra/kubernetes/automation/terraform/registry init
+terraform -chdir=stacks/full-infra/kubernetes/automation/terraform/registry apply
 
-REPO_URL=$(aws ecr describe-repositories --repository-names containerize-your-infra/dns \
-  --region "$REGION" --query 'repositories[0].repositoryUri' --output text)
+REPO_URL=$(terraform -chdir=stacks/full-infra/kubernetes/automation/terraform/registry \
+  output -raw dns_repository_url)
 echo "$REPO_URL"
 # → <account-id>.dkr.ecr.eu-west-1.amazonaws.com/containerize-your-infra/dns
 
@@ -96,6 +97,7 @@ docker build --platform linux/arm64 -t "$REPO_URL:v1" \
 docker push "$REPO_URL:v1"
 ```
 
+📄 `stacks/full-infra/kubernetes/automation/terraform/registry/ecr.tf` — `dns` repository, same state as `web-server`'s
 📄 `modules/dns/kubernetes/Dockerfile` — build context is `modules/dns/kubernetes/`
 
 ### Why
@@ -108,15 +110,19 @@ includes `dig`, used by the probes and the validation steps.
 The Ubuntu 24.04 package ships BIND 9.18 (Extended Support Version), one minor behind the 9.20 used by the Docker module; the configuration used here exists in both.
 
 The repository is separate from `web-server`: one repository per image keeps tags and
-lifecycle independent. It is created by hand, without Terraform — automating it belongs to
-the full-infra stack, once the manual procedure is understood. Because it is outside
-Terraform state, `terraform destroy` does not remove it; the Teardown deletes it explicitly.
+lifecycle independent. Both come from the same registry Terraform, whose state is isolated
+from the cluster's: a cluster teardown never removes build artifacts. Terraform owns the
+repository only; the image is built and pushed here. If the `web-server` module was
+deployed first, this `apply` adds only the `dns` repository and its lifecycle policy.
 
 Tags are never reused: a rebuilt image gets a new tag (`v2`) and `values.yaml` follows it.
 
 ### Verification
 
 ```bash
+terraform -chdir=stacks/full-infra/kubernetes/automation/terraform/registry output -raw dns_repository_url
+# → <account-id>.dkr.ecr.eu-west-1.amazonaws.com/containerize-your-infra/dns
+
 aws ecr describe-images --repository-name containerize-your-infra/dns --region "$REGION" \
   --query 'imageDetails[*].imageTags' --output text
 # → v1
@@ -528,15 +534,12 @@ kubectl get pods -n full-infra-prod -l app.kubernetes.io/name=dns
 ```bash
 helm uninstall dns -n full-infra-dev
 helm uninstall dns -n full-infra-prod
-
-aws ecr delete-repository --repository-name containerize-your-infra/dns --region eu-west-1 --force
 ```
 
 The releases create no resources outside the cluster: no load balancer, no volume, no
-Secret. The ECR repository from Step 1 was created by hand, outside Terraform, so
-`terraform destroy` does not remove it and it is deleted explicitly. The order with respect
-to `terraform destroy` does not matter for this module, unlike `reverse-proxy`, whose
-Service provisions an ELB. `bootstrap-down.sh` does not know about this release or
-repository.
+Secret. The ECR repository from Step 1 belongs to the registry Terraform state, so it is
+removed with `terraform destroy` in `automation/terraform/registry/`, not here. The order
+with respect to the cluster `terraform destroy` does not matter for this module, unlike
+`reverse-proxy`, whose Service provisions an ELB.
 
 ---

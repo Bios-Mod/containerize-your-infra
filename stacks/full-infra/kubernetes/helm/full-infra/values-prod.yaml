@@ -1,0 +1,44 @@
+# Deploy to:   EKS, namespace full-infra-prod
+# Apply:       helm install / helm upgrade -f values.yaml -f values-prod.yaml
+# Module:      stacks/full-infra/kubernetes
+# Requires:    values.yaml (baseline)
+#
+# Prod-only overrides for the three modules. Reproduces, under each subchart
+# key, the deltas of modules/*/kubernetes/helm/*/values-prod.yaml.
+# Parameters modified from baseline: replicas, image tag and resources
+# (web-server, dns), Traefik Service type, watched namespace and IngressClass
+#
+# Note: every container stays under the full-infra-prod LimitRange maximum
+# (500m CPU, 512Mi memory) and the aggregate under the ResourceQuota.
+
+web-server:
+  replicaCount: 2
+  image:
+    tag: prod
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+reverse-proxy:
+  traefik:
+    service:
+      type: LoadBalancer # provisions an AWS Classic ELB, no Load Balancer Controller
+    providers:
+      kubernetesCRD:
+        namespaces: [full-infra-prod]
+    ingressClass:
+      enabled: false
+
+dns:
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 96Mi
+    limits:
+      cpu: 300m
+      memory: 192Mi

@@ -5,10 +5,11 @@
 
 # Detects changed module paths in the PR diff and runs the corresponding
 # validation jobs conditionally, per runtime. Full-stack Docker validation runs
-# only when stack or module Docker paths change. Writes a per-module pass/fail
-# summary into the PR.
-# Parameters modified from baseline: web-server, reverse-proxy and dns split into
-# independent docker/helm path filters and jobs; summary extended accordingly.
+# only when stack or module Docker paths change; the umbrella chart and the
+# EKS/registry Terraform are validated only when their own paths change. Writes
+# a per-module pass/fail summary into the PR.
+# Parameters modified from baseline: full-infra-helm and
+# full-infra-terraform-kubernetes filters and jobs added; summary extended.
 
 name: pull-request
 
@@ -28,6 +29,8 @@ jobs:
       reverse-proxy-docker: ${{ steps.filter.outputs.reverse-proxy-docker }}
       reverse-proxy-helm: ${{ steps.filter.outputs.reverse-proxy-helm }}
       full-infra: ${{ steps.filter.outputs.full-infra }}
+      full-infra-helm: ${{ steps.filter.outputs.full-infra-helm }}
+      full-infra-terraform-kubernetes: ${{ steps.filter.outputs.full-infra-terraform-kubernetes }}
 
     steps:
       - name: Checkout repository
@@ -76,6 +79,15 @@ jobs:
             full-infra:
               - 'stacks/full-infra/docker/**'
               - 'modules/**/docker/**'
+              - '.github/workflows/full-infra.yml'
+
+            full-infra-helm:
+              - 'stacks/full-infra/kubernetes/helm/**'
+              - 'modules/**/kubernetes/helm/**'
+              - '.github/workflows/full-infra.yml'
+
+            full-infra-terraform-kubernetes:
+              - 'stacks/full-infra/kubernetes/automation/terraform/**'
               - '.github/workflows/full-infra.yml'
 
   validate-web-server-docker:
@@ -269,6 +281,80 @@ jobs:
       - name: Build full stack
         run: docker compose -f docker-compose.prod.yml build
 
+  validate-full-infra-helm:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.full-infra-helm == 'true'
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+
+      - name: Add Traefik chart repository
+        run: helm repo add traefik https://traefik.github.io/charts
+
+      - name: Build reverse-proxy dependencies
+        run: helm dependency build modules/reverse-proxy/kubernetes/helm/reverse-proxy
+
+      - name: Build umbrella dependencies
+        working-directory: stacks/full-infra/kubernetes/helm/full-infra
+        run: helm dependency build
+
+      - name: Lint umbrella chart (dev and prod)
+        working-directory: stacks/full-infra/kubernetes/helm/full-infra
+        run: |
+          for ENV in dev prod; do
+            helm lint . -f values.yaml -f values-$ENV.yaml \
+              --set web-server.image.repository=registry.example.com/web-server \
+              --set dns.image.repository=registry.example.com/dns
+          done
+
+      - name: Render umbrella chart and check cross-module names
+        working-directory: stacks/full-infra/kubernetes/helm/full-infra
+        run: |
+          for ENV in dev prod; do
+            helm template full-infra . -n full-infra-$ENV -f values.yaml -f values-$ENV.yaml \
+              --set web-server.image.repository=registry.example.com/web-server \
+              --set dns.image.repository=registry.example.com/dns > /tmp/full-infra-$ENV.yaml
+            if grep -qE 'web-server-web-server|dns-dns' /tmp/full-infra-$ENV.yaml; then
+              echo "::error::Stale module Service name in the $ENV render"
+              exit 1
+            fi
+          done
+
+  validate-full-infra-terraform-kubernetes:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.full-infra-terraform-kubernetes == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        stack:
+          - cluster
+          - registry
+    defaults:
+      run:
+        working-directory: stacks/full-infra/kubernetes/automation/terraform/${{ matrix.stack }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+
+      - name: Terraform format check
+        run: terraform fmt -check
+
+      - name: Terraform init without backend
+        run: terraform init -backend=false
+
+      - name: Terraform validate
+        run: terraform validate
+
   summary:
     needs:
       - validate-web-server-docker
@@ -279,6 +365,8 @@ jobs:
       - validate-reverse-proxy-docker
       - validate-reverse-proxy-helm
       - validate-full-infra
+      - validate-full-infra-helm
+      - validate-full-infra-terraform-kubernetes
     if: always()
     runs-on: ubuntu-24.04-arm
     permissions:
@@ -297,7 +385,9 @@ jobs:
               "dns (helm)": "${{ needs.validate-dns-helm.result }}",
               "reverse-proxy (docker)": "${{ needs.validate-reverse-proxy-docker.result }}",
               "reverse-proxy (helm)": "${{ needs.validate-reverse-proxy-helm.result }}",
-              "full-infra": "${{ needs.validate-full-infra.result }}"
+              "full-infra (docker)": "${{ needs.validate-full-infra.result }}",
+              "full-infra (helm)": "${{ needs.validate-full-infra-helm.result }}",
+              "full-infra (terraform kubernetes)": "${{ needs.validate-full-infra-terraform-kubernetes.result }}"
             };
 
             let body = "### CI Summary\n\n| Module | Result |\n|---|---|\n";

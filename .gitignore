@@ -53,3 +53,5 @@ bootstrap-up.sh
 bootstrap-down.sh
 
 modules/reverse-proxy/kubernetes/helm/reverse-proxy/charts/
+
+tmp/
