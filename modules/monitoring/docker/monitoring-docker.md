@@ -6,10 +6,11 @@
 
 ## Introduction
 
-This document covers the deployment of the pull-based metrics foundation for
+This document covers the deployment of the pull-based observability stack for
 containerized infrastructure monitoring: `node_exporter` for host telemetry,
-`cAdvisor` for per-container resource usage, and `Prometheus` as the time-series
-scraper and query engine.
+`cAdvisor` for per-container resource usage, `blackbox_exporter` for synthetic
+HTTP/DNS availability probes, and `Prometheus` as the time-series scraper and
+query engine.
 
 In `build-your-infra`, host metrics were collected by an OS-level
 `prometheus-node-exporter` package over a WireGuard tunnel. Here, all
@@ -34,6 +35,7 @@ the host.
 | Prometheus image | `prom/prometheus:v3.16.0` |
 | Node Exporter image | `prom/node-exporter:v1.12.1` |
 | cAdvisor image | `ghcr.io/google/cadvisor:v0.60.6` |
+| Blackbox Exporter image | `prom/blackbox-exporter:v0.29.1` |
 | Network | External `proxy-net` (`172.21.0.0/24`) |
 | Published ports | None — internal `proxy-net` endpoints only |
 | Scrape interval | `15s` (`prometheus`, `node`, `cadvisor`) |
@@ -293,4 +295,170 @@ docker compose exec -T prometheus wget -qO- 'http://localhost:9090/api/v1/query?
 docker compose exec -T prometheus wget -qO- 'http://localhost:9090/api/v1/query?query=topk(3,container_memory_working_set_bytes)' \
   | python3 -c "import sys,json; print(len(json.load(sys.stdin)['data']['result']))"
 # → 3
+```
+
+---
+
+## Step 6 — Synthetic Probes with blackbox_exporter
+
+### What was done
+
+Deploy `blackbox_exporter` (`prom/blackbox-exporter:v0.29.1`) on `proxy-net`
+with no published ports and two probe modules defined in
+`configs/blackbox/blackbox.yml`:
+
+- `http_2xx_insecure`: HTTP/HTTPS probe accepting only status `200`, requiring TLS
+  (`fail_if_not_ssl: true`), sending `Host: web.localhost`, preferring IPv4, and
+  skipping CA trust verification (`insecure_skip_verify: true`) for the lab's
+  self-signed certificate.
+- `dns_lab_soa`: UDP `SOA` query for `lab.local` over IPv4 expecting `NOERROR`.
+
+> **Prerequisite — Target services running on `proxy-net`:** `reverse-proxy`
+> (`traefik` and `web-server`) and `dns` must be running and reachable on
+> `proxy-net` before running the probes in Steps 6 and 7. When deploying from
+> `stacks/full-infra/docker/`, all three services already share `proxy-net`;
+> when testing standalone module setups in dev, ensure `dns` is attached to
+> `proxy-net` (`docker network connect proxy-net dns` if it started on `lab-net`
+> only).
+
+```bash
+# Validate blackbox.yml syntax before starting the container
+docker compose run --rm --no-deps blackbox-exporter --config.file=/config/blackbox.yml --config.check
+# → ... msg="Config file is ok exiting..."
+
+# Start blackbox-exporter
+docker compose up -d blackbox-exporter
+```
+
+📄 [`configs/blackbox/blackbox.yml`](configs/blackbox/blackbox.yml) — mounted read-only at `/config/blackbox.yml`
+📄 [`docker-compose.yml`](docker-compose.yml) — `blackbox-exporter` service definition
+
+### Why
+
+* **Probing `https://traefik` with `Host: web.localhost` vs `web-server` directly:**
+  `web-server` serves plain HTTP on port `8080` inside `proxy-net`, while real
+  requests enter through `traefik` on `:443`, where Traefik terminates TLS and
+  evaluates the `Host(\`web.localhost\`)` router before proxying upstream.
+  Targeting `https://traefik` with `Host: web.localhost` validates TLS
+  termination, certificate lifetime, Traefik routing, and the Nginx backend in
+  a single probe — hitting `web-server` directly would bypass TLS and reverse
+  proxy rules. `fail_if_not_ssl: true` ensures unencrypted HTTP cannot pass
+  silently, and `valid_status_codes: [200]` catches upstream proxy failures
+  (`502`) or missing routes (`404`).
+* **Why `insecure_skip_verify: true` is enabled:** Traefik serves the lab's
+  self-signed wildcard certificate (`CN=*.localhost`), which is not issued by a
+  CA trusted in `prom/blackbox-exporter`'s default trust store. Skipping CA chain
+  verification allows the probe to complete the TLS handshake, verify `200 OK`,
+  and export `probe_ssl_earliest_cert_expiry` without injecting a custom CA
+  bundle into the official image. In a production environment using a public or
+  trusted internal CA, `insecure_skip_verify` must remain `false`.
+* **DNS `SOA` probe (`dns_lab_soa`) vs `pidof named`:** the `dns` container's
+  `pidof named` healthcheck only proves that the daemon process PID exists —
+  BIND9 can stay running while failing to load zone files, bind UDP `:53`, or
+  answer queries. Sending a UDP `SOA` query for `lab.local` expecting `NOERROR`
+  exercises the network listener and authoritative zone resolution end-to-end.
+* **Hardening:** `blackbox-exporter` drops all Linux capabilities
+  (`cap_drop: [ALL]`), enforces `no-new-privileges:true`, sets `read_only: true`,
+  mounts `blackbox.yml` read-only, and exposes no ports on the host. No ICMP
+  probe is configured, so `CAP_NET_RAW` is not needed.
+
+### Verification
+
+```bash
+docker compose ps blackbox-exporter
+# → NAME                IMAGE                          STATUS
+# → blackbox-exporter   prom/blackbox-exporter:v0.29.1 Up X seconds
+
+# Confirm internal exporter endpoint responds inside proxy-net
+docker compose exec -T blackbox-exporter wget -qO- http://localhost:9115/metrics | head -n 5
+# → # HELP blackbox_exporter_build_info A metric with a constant '1' value labeled by version, revision, branch, goversion from which blackbox_exporter was built, and the goos and goarch for the build.
+# → # TYPE blackbox_exporter_build_info gauge
+# → ...
+```
+
+---
+
+## Step 7 — Probe Jobs and Verification
+
+### What was done
+
+Add the `blackbox-http` (`https://traefik` via `http_2xx_insecure`) and
+`blackbox-dns` (`dns:53` via `dns_lab_soa`) scrape jobs tagged with
+`host: lab-docker` to `configs/prometheus/prometheus.yml` using the multi-target
+`relabel_configs` pattern, validate `prometheus.yml`, and restart `prometheus`
+so it loads the updated configuration.
+
+```bash
+# Validate updated Prometheus config syntax before reloading
+docker compose run --rm --no-deps --entrypoint promtool prometheus check config /etc/prometheus/prometheus.yml
+# → Checking /etc/prometheus/prometheus.yml
+# →  SUCCESS: /etc/prometheus/prometheus.yml is valid prometheus config file syntax
+
+# Restart Prometheus to load the updated bind-mounted prometheus.yml
+docker compose restart prometheus
+```
+
+📄 [`configs/prometheus/prometheus.yml`](configs/prometheus/prometheus.yml) — adds `blackbox-http` and `blackbox-dns` probe jobs
+
+### Why
+
+* **Multi-target exporter pattern (`relabel_configs`):** unlike host or
+  container exporters that report metrics about themselves on `/metrics`,
+  `blackbox_exporter` probes remote endpoints on demand at
+  `/probe?target=<endpoint>&module=<name>`. The `relabel_configs` chain copies
+  each static target (`https://traefik`, `dns:53`) from `__address__` into
+  `__param_target`, copies `__param_target` into `instance` so probe metrics
+  carry the probed service name instead of the exporter's hostname, and
+  rewrites `__address__` to `blackbox-exporter:9115` so Prometheus sends the HTTP
+  scrape request to the exporter container.
+* **Reloading configuration via container restart:** Prometheus is started without
+  `--web.enable-lifecycle`, and adding jobs to the bind-mounted
+  `prometheus.yml` does not modify the `prometheus` service definition in
+  `docker-compose.yml`. Restarting `prometheus` loads the new scrape jobs cleanly
+  while preserving the running container's TSDB.
+
+### Verification
+
+Wait ~15–20 seconds after restarting `prometheus` so at least one scrape cycle
+completes, then run direct probe checks and Prometheus API queries:
+
+```bash
+# Direct probe check — HTTPS via Traefik
+docker compose exec -T blackbox-exporter wget -qO- 'http://localhost:9115/probe?target=https://traefik&module=http_2xx_insecure' \
+  | grep -E '^probe_(success|duration_seconds|ssl_earliest_cert_expiry)'
+# → probe_duration_seconds 0.0...
+# → probe_ssl_earliest_cert_expiry 1.7...e+09
+# → probe_success 1
+
+# Direct probe check — DNS SOA for lab.local
+docker compose exec -T blackbox-exporter wget -qO- 'http://localhost:9115/probe?target=dns:53&module=dns_lab_soa' \
+  | grep -E '^probe_(success|duration_seconds)'
+# → probe_duration_seconds 0.0...
+# → probe_success 1
+
+# Confirm all scrape targets (including blackbox-http and blackbox-dns) report "up"
+docker compose exec -T prometheus wget -qO- http://localhost:9090/api/v1/targets \
+  | python3 -c "import sys,json; [print(t['labels']['job'], t['labels']['host'], t['health']) for t in json.load(sys.stdin)['data']['activeTargets']]"
+# → blackbox-dns lab-docker up
+# → blackbox-http lab-docker up
+# → cadvisor lab-docker up
+# → node lab-docker up
+# → prometheus lab-docker up
+
+# Confirm probe_success == 1 for both blackbox jobs via Prometheus HTTP API
+docker compose exec -T prometheus wget -qO- 'http://localhost:9090/api/v1/query?query=probe_success' \
+  | python3 -c "import sys,json; [print(r['metric']['job'], r['metric']['instance'], r['value'][1]) for r in json.load(sys.stdin)['data']['result']]"
+# → blackbox-dns dns:53 1
+# → blackbox-http https://traefik 1
+
+# Inspect TLS leaf certificate expiration timestamp (Unix epoch seconds)
+docker compose exec -T prometheus wget -qO- 'http://localhost:9090/api/v1/query?query=probe_ssl_earliest_cert_expiry' \
+  | python3 -c "import sys,json; [print(r['metric']['instance'], r['value'][1]) for r in json.load(sys.stdin)['data']['result']]"
+# → https://traefik <unix-timestamp>
+
+# Inspect probe duration (seconds) across both jobs
+docker compose exec -T prometheus wget -qO- 'http://localhost:9090/api/v1/query?query=probe_duration_seconds' \
+  | python3 -c "import sys,json; [print(r['metric']['job'], r['metric']['instance'], r['value'][1]) for r in json.load(sys.stdin)['data']['result']]"
+# → blackbox-dns dns:53 <seconds>
+# → blackbox-http https://traefik <seconds>
 ```

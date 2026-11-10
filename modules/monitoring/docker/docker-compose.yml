@@ -1,9 +1,9 @@
 # Deploy to:   modules/monitoring/docker/docker-compose.yml
 # Apply:       docker compose up -d
 # Module:      monitoring
-# Requires:    configs/prometheus/prometheus.yml, external Docker network proxy-net (created by reverse-proxy)
+# Requires:    configs/prometheus/prometheus.yml, configs/blackbox/blackbox.yml, external Docker network proxy-net (created by reverse-proxy)
 #
-# Pull-based observability base (dev): Prometheus, node_exporter, and cAdvisor on proxy-net with no exposed ports.
+# Pull-based observability base (dev): Prometheus, node_exporter, cAdvisor, and blackbox_exporter on proxy-net with no exposed ports.
 # Parameters modified from baseline: external proxy-net, 15d retention, hardening flags, privileged cAdvisor
 
 services:
@@ -61,6 +61,22 @@ services:
     depends_on:
       - node-exporter
       - cadvisor
+    networks:
+      - proxy-net
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.29.1
+    container_name: blackbox-exporter
+    restart: "no"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./configs/blackbox/blackbox.yml:/config/blackbox.yml:ro
+    command:
+      - "--config.file=/config/blackbox.yml"
     networks:
       - proxy-net
 
