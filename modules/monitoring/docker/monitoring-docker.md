@@ -1,6 +1,6 @@
 # Monitoring — containerize-your-infra
 
-**Docker Engine · prom/prometheus:v3.16.0 · prom/node-exporter:v1.12.1 · ghcr.io/google/cadvisor:v0.60.6**
+**Docker Engine · prom/prometheus:v3.16.0 · grafana/grafana:13.3.0 · prom/node-exporter:v1.12.1 · ghcr.io/google/cadvisor:v0.60.6 · prom/blackbox-exporter:v0.29.1**
 
 ---
 
@@ -9,22 +9,25 @@
 This document covers the deployment of the pull-based observability stack for
 containerized infrastructure monitoring: `node_exporter` for host telemetry,
 `cAdvisor` for per-container resource usage, `blackbox_exporter` for synthetic
-HTTP/DNS availability probes, and `Prometheus` as the time-series scraper and
-query engine.
+HTTP/DNS availability probes, Traefik's `/metrics` endpoint for reverse-proxy
+telemetry, `Prometheus` as the time-series scraper and query engine, and
+`Grafana` (with provisioned datasource and `Lab Overview` dashboard) exposed
+exclusively behind Traefik HTTPS at `https://grafana.localhost`.
 
 In `build-your-infra`, host metrics were collected by an OS-level
 `prometheus-node-exporter` package over a WireGuard tunnel. Here, all
 components run as containers on the shared `proxy-net` Docker bridge network and
-communicate via Docker's embedded DNS without publishing any metrics ports to
-the host.
+communicate via Docker's embedded DNS without publishing any Prometheus,
+exporter, or direct Grafana ports to the host.
 
 > **Prerequisite — Reverse Proxy (`proxy-net`):** the `reverse-proxy` module
 > must already be running (`modules/reverse-proxy/docker/`) so the external
 > Docker network `proxy-net` (`172.21.0.0/24`) exists before running
 > `docker compose up -d` in this module.
 
-> **Config files in `configs/prometheus/`** contain only the configuration added
-> by this module. Referenced paths sit relative to `modules/monitoring/docker/`.
+> **Config files in `configs/`** (`configs/prometheus/`, `configs/blackbox/`, and
+> `configs/grafana/`) contain only the configuration added by this module.
+> Referenced paths sit relative to `modules/monitoring/docker/`.
 
 ---
 
@@ -33,16 +36,19 @@ the host.
 | Parameter | Value |
 |---|---|
 | Prometheus image | `prom/prometheus:v3.16.0` |
+| Grafana image | `grafana/grafana:13.3.0` |
 | Node Exporter image | `prom/node-exporter:v1.12.1` |
 | cAdvisor image | `ghcr.io/google/cadvisor:v0.60.6` |
 | Blackbox Exporter image | `prom/blackbox-exporter:v0.29.1` |
 | Network | External `proxy-net` (`172.21.0.0/24`) |
-| Published ports | None — internal `proxy-net` endpoints only |
-| Scrape interval | `15s` (`prometheus`, `node`, `cadvisor`) |
-| TSDB retention | `15d` (`--storage.tsdb.retention.time=15d`) |
-| TSDB persistence (dev) | None — ephemeral container storage, lost on `down` |
-| Config mount | Bind mount `:ro` — `configs/prometheus/prometheus.yml` |
-| Restart policy (dev) | `"no"` |
+| Published ports | None — internal `proxy-net` endpoints only; Grafana ingress via Traefik (`https://grafana.localhost:443`) |
+| Scrape interval | `15s` (`prometheus`, `node`, `cadvisor`, `blackbox-http`, `blackbox-dns`, `traefik`) |
+| TSDB retention | `15d` in dev (`--storage.tsdb.retention.time=15d`); `15d` + `1GB` cap in prod (`--storage.tsdb.retention.size=1GB`) |
+| Persistence (dev) | Ephemeral — container TSDB storage and Grafana `tmpfs` `/var/lib/grafana` discarded on `down` |
+| Persistence (prod) | Named volumes `prometheus-data` (`/prometheus`) and `grafana-data` (`/var/lib/grafana`) |
+| Config mounts | Bind mounts `:ro` under `configs/prometheus/`, `configs/blackbox/`, and `configs/grafana/` |
+| Credentials | `.env` copied from `.env.example` (gitignored — holds `GRAFANA_ADMIN_PASSWORD`) |
+| Restart policy | `"no"` (dev) · `unless-stopped` (prod) |
 
 ---
 
@@ -800,3 +806,235 @@ curl -sk --resolve grafana.localhost:443:127.0.0.1 \
 
 rm -f /tmp/grafana.cookies
 ```
+
+---
+
+## Step 12 — Production Compose
+
+### What was done
+
+Deploy the monitoring stack using `docker-compose.prod.yml` (`docker compose -f
+docker-compose.prod.yml up -d`), which keeps the same five images, Traefik
+labels, and container hardening posture as dev while switching to named volumes
+(`prometheus-data` and `grafana-data`), `restart: unless-stopped`, native `wget`
+healthchecks on all five services, explicit memory limits, and a `1GB` TSDB
+storage ceiling alongside `15d` retention.
+
+| Operational Setting | Dev (`docker-compose.yml`) | Prod (`docker-compose.prod.yml`) |
+|---|---|---|
+| Restart policy | `"no"` | `unless-stopped` |
+| Prometheus storage | Ephemeral container volume | Named volume `prometheus-data` (`/prometheus`) |
+| Grafana storage | `tmpfs` `/var/lib/grafana` (stateless) | Named volume `grafana-data` (`/var/lib/grafana`) |
+| TSDB retention limits | `15d` | `15d` and `--storage.tsdb.retention.size=1GB` |
+| Healthchecks | None declared in Compose | `wget` HTTP checks on all 5 containers |
+| Memory limits | Unbounded | `prometheus: 256m`, `grafana: 192m`, `cadvisor: 128m`, `node-exporter: 64m`, `blackbox-exporter: 64m` |
+
+> **Prerequisites before running production Compose:**
+> 1. Ensure `reverse-proxy` is already running from its production Compose
+>    (`modules/reverse-proxy/docker/docker-compose.prod.yml`) with metrics
+>    enabled in `traefik.yml`, and `dns` is attached to `proxy-net`.
+> 2. Ensure `modules/monitoring/docker/.env` exists with a production
+>    `GRAFANA_ADMIN_PASSWORD`.
+> 3. Stop the dev stack first (`docker compose down`) if it is running on the
+>    same host, because both Compose files use fixed `container_name` values.
+
+```bash
+# Validate production Compose syntax and env interpolation
+docker compose -f docker-compose.prod.yml config --quiet
+# → (no output — exit code 0)
+
+# Stop dev containers if active, then start production containers
+docker compose down
+docker compose -f docker-compose.prod.yml up -d
+```
+
+📄 [`docker-compose.prod.yml`](docker-compose.prod.yml) — production Compose definition with named volumes, healthchecks, memory limits, and `1GB` TSDB cap
+
+### Why
+
+* **Named volumes instead of `tmpfs` / ephemeral container storage:** in prod,
+  Prometheus TSDB segments must survive container recreation or image updates
+  (`prometheus-data:/prometheus`), and Grafana's SQLite database
+  (`grafana-data:/var/lib/grafana`) must persist admin password changes, session
+  state, and user preferences across restarts. Removing `tmpfs` on
+  `/var/lib/grafana` lets Docker initialize and persist the named volume with
+  Grafana's container ownership (`uid=472`) while `/tmp` stays `tmpfs` under
+  `read_only: true`.
+* **Healthchecks across all five containers:** each official image ships `wget`,
+  allowing lightweight probes (`/-/healthy`, `/api/health`, `/healthz`, `/`)
+  with `30s` intervals. Container status in `docker compose ps` surfaces silent
+  startup or runtime stalls (`unhealthy`) without installing extra binaries or
+  publishing ports.
+* **Bounded TSDB and per-container memory limits:** adding
+  `--storage.tsdb.retention.size=1GB` alongside `15d` protects small EC2 root
+  disks (`t4g.micro`) against sudden cardinality spikes, while
+  `deploy.resources.limits.memory` (`704m` combined ceiling across the five
+  containers) prevents a single exporter or query spike from triggering a
+  host-wide OOM kill.
+
+### Production considerations
+
+This laboratory Compose file intentionally optimizes for a single-host `t4g.micro`
+footprint and zero external dependencies. In a real production environment, six
+architectural changes apply:
+
+1. **Retention and remote storage:** a single host volume with `15d` / `1GB`
+   limits loses metrics if the instance or EBS volume fails. Production stacks
+   pair short local TSDB retention with `remote_write` into long-term object
+   storage backends (Thanos, Grafana Mimir, Cortex, or Amazon Managed
+   Prometheus).
+2. **Alerting and routing:** Alertmanager is excluded here; production requires
+   recording/alerting rules in Prometheus routed through redundant Alertmanager
+   instances (grouping, deduplication, silences, and receivers such as Slack,
+   PagerDuty, or SNS), including meta-monitoring (`Watchdog` / target-down alerts).
+3. **Centralized authentication and secrets:** static credentials in `.env` and
+   a shared Traefik bcrypt hash do not scale cleanly or support auditability.
+   Production delegates authentication to an identity provider (OIDC / OAuth2 /
+   SAML) with RBAC teams and fetches secrets from a vault or cloud secret
+   manager with automatic rotation.
+4. **Eliminating host Docker socket exposure and privileged `cAdvisor`:**
+   mounting `/var/run/docker.sock` directly (even `:ro` in Traefik) and running
+   `cAdvisor` with `privileged: true` increases blast radius if a container is
+   compromised. Production restricts Docker socket access via a minimal socket
+   proxy, collects node/container stats from kubelet-managed cAdvisor or
+   scoped eBPF/daemon agents without `privileged: true`, and avoids host
+   `/dev/kmsg` mounts.
+5. **Realistic resource sizing and host isolation:** `256m` for Prometheus and
+   sharing a 1 GiB host with production workloads causes query throttling and
+   OOM pressure as active series grow. Production runs observability on dedicated
+   compute sized by `prometheus_tsdb_head_series` and sets both memory requests
+   and limits so observability cannot fail alongside the workload it monitors.
+6. **External Grafana database for high availability:** file-backed SQLite inside
+   a Docker volume binds Grafana to one node and prevents horizontal replicas.
+   Production uses a managed PostgreSQL database (such as RDS Multi-AZ) so
+   multiple stateless Grafana replicas can run behind the load balancer.
+
+### Verification
+
+```bash
+# Confirm all 5 services reach healthy status (wait ~20–30s after up -d)
+docker compose -f docker-compose.prod.yml ps
+# → NAME                IMAGE                             STATUS
+# → blackbox-exporter   prom/blackbox-exporter:v0.29.1    Up X seconds (healthy)
+# → cadvisor            ghcr.io/google/cadvisor:v0.60.6   Up X seconds (healthy)
+# → grafana             grafana/grafana:13.3.0            Up X seconds (healthy)
+# → node-exporter       prom/node-exporter:v1.12.1        Up X seconds (healthy)
+# → prometheus          prom/prometheus:v3.16.0           Up X seconds (healthy)
+
+# Confirm both named volumes were created
+docker volume ls | grep -E 'prometheus-data|grafana-data'
+# → local     <project>_grafana-data
+# → local     <project>_prometheus-data
+
+# Test persistence across container replacement (do NOT pass -v)
+docker compose -f docker-compose.prod.yml down
+docker compose -f docker-compose.prod.yml up -d
+sleep 20
+
+# Confirm pre-restart TSDB samples remain queryable in Prometheus (>1 sample over 15m)
+docker compose -f docker-compose.prod.yml exec -T prometheus wget -qO- \
+  'http://localhost:9090/api/v1/query?query=count_over_time(up{job="prometheus"}[15m])' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['result'][0]['value'][1])"
+# → <sample-count-preserved-across-restart>
+
+# Confirm grafana-data preserved Grafana's internal health and state
+docker compose -f docker-compose.prod.yml exec -T grafana wget -qO- http://localhost:3000/api/health
+# → {"database":"ok","version":"13.3.0"}
+```
+
+---
+
+## Step 13 — End-to-End Verification and Fault Injection
+
+### What was done
+
+Verify the complete observability loop end to end — all six Prometheus targets
+`up`, both synthetic probes reporting `1`, live series populating the `Lab
+Overview` dashboard in Grafana — then perform controlled fault injection by
+stopping the `dns` container to confirm that `blackbox_exporter` and Grafana
+surface the outage within two scrape cycles (`~30s`) and recover automatically
+after `docker start dns`, followed by stack cleanup.
+
+### Why
+
+Monitoring only proves its value when failure changes telemetry predictably.
+Stopping `dns` tests the full detection chain: Docker networking drops `:53`,
+`blackbox-exporter` fails its UDP `SOA` lookup (`dns_lab_soa`), Prometheus
+records `probe_success{job="blackbox-dns"} == 0` within one to two `15s` scrape
+intervals, and Grafana's **Blackbox Probes OK** (`min(probe_success)`) and
+**Probe Status (`probe_success`)** panels flip to `FAIL` / `DOWN` without manual
+intervention. Meanwhile, `probe_success{job="blackbox-http"}` stays `1`, proving
+probe isolation across independent targets.
+
+### Verification
+
+Run these commands against whichever Compose stack you have active (add `-f
+docker-compose.prod.yml` if validating production):
+
+```bash
+# 1. Confirm all 6 targets report health "up"
+docker compose exec -T prometheus wget -qO- http://localhost:9090/api/v1/targets \
+  | python3 -c "import sys,json; [print(t['labels']['job'], t['labels']['host'], t['health']) for t in json.load(sys.stdin)['data']['activeTargets']]"
+# → blackbox-dns lab-docker up
+# → blackbox-http lab-docker up
+# → cadvisor lab-docker up
+# → node lab-docker up
+# → prometheus lab-docker up
+# → traefik lab-docker up
+
+# 2. Confirm all synthetic probes report probe_success == 1
+docker compose exec -T prometheus wget -qO- 'http://localhost:9090/api/v1/query?query=probe_success' \
+  | python3 -c "import sys,json; [print(r['metric']['job'], r['metric']['instance'], r['value'][1]) for r in json.load(sys.stdin)['data']['result']]"
+# → blackbox-dns dns:53 1
+# → blackbox-http https://traefik 1
+
+# 3. Generate one HTTPS request so Traefik lazily initializes router/service metrics, then open
+#    https://grafana.localhost (dashboard: Lab / Lab Overview) in your browser and confirm all 14 panels show data
+curl -sk -o /dev/null -w "%{http_code}\n" --resolve web.localhost:443:127.0.0.1 https://web.localhost/
+# → 200
+
+# 4. Fault injection: stop the dns container and wait two scrape cycles (~35s)
+docker stop dns
+sleep 35
+
+# Confirm blackbox-dns transitions to 0 while blackbox-http stays 1
+docker compose exec -T prometheus wget -qO- 'http://localhost:9090/api/v1/query?query=probe_success' \
+  | python3 -c "import sys,json; [print(r['metric']['job'], r['metric']['instance'], r['value'][1]) for r in json.load(sys.stdin)['data']['result']]"
+# → blackbox-dns dns:53 0
+# → blackbox-http https://traefik 1
+
+# Confirm Grafana's global probe summary (min(probe_success)) reflects failure (0 / FAIL)
+docker compose exec -T prometheus wget -qO- 'http://localhost:9090/api/v1/query?query=min(probe_success)' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['result'][0]['value'][1])"
+# → 0
+# In Grafana → Lab Overview, "Blackbox Probes OK" turns red (FAIL) and "Probe Status (probe_success)" drops dns:53 to DOWN (0)
+
+# 5. Restore dns and wait two scrape cycles (~35s)
+docker start dns
+sleep 35
+
+docker compose exec -T prometheus wget -qO- 'http://localhost:9090/api/v1/query?query=probe_success' \
+  | python3 -c "import sys,json; [print(r['metric']['job'], r['metric']['instance'], r['value'][1]) for r in json.load(sys.stdin)['data']['result']]"
+# → blackbox-dns dns:53 1
+# → blackbox-http https://traefik 1
+```
+
+#### Cleanup
+
+When finished testing, stop the monitoring stack cleanly:
+
+```bash
+# Dev stack: removes containers; discards ephemeral TSDB data in /prometheus and tmpfs state in /var/lib/grafana
+docker compose down
+
+# Prod stack: stops containers while keeping prometheus-data and grafana-data volumes intact
+docker compose -f docker-compose.prod.yml down
+```
+
+> **What is lost on `docker compose down` in dev:** because dev mounts no
+> persistent volume on `/prometheus` and backs `/var/lib/grafana` with `tmpfs`,
+> `docker compose down` permanently wipes all collected Prometheus time series
+> and Grafana runtime state (active sessions and any UI edits not saved in
+> provisioning). Versioned files under `configs/` and your local `.env` remain
+> intact on disk; only running `down -v` on `docker-compose.prod.yml` deletes
+> production volumes.
