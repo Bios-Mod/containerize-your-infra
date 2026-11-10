@@ -45,7 +45,9 @@ strong `GRAFANA_ADMIN_PASSWORD` before validating the Compose file.
 
 > **Never commit `.env`:** `modules/monitoring/docker/.env` is listed in
 > `.gitignore`. `docker compose config` fails unless `GRAFANA_ADMIN_PASSWORD` is
-> set in `.env` or the shell environment.
+> set in `.env` or the shell environment. `GRAFANA_ADMIN_PASSWORD` is the
+> module's only password (chosen when creating `.env`); run
+> `grep GRAFANA_ADMIN_PASSWORD .env` to recall it later.
 
 ```bash
 cd modules/monitoring/docker/
@@ -294,7 +296,7 @@ curl -sk -o /dev/null -w "%{http_code}\n" --resolve traefik.localhost:443:127.0.
 Start `grafana` (`grafana/grafana:13.3.0`) on `proxy-net` with read-only
 file provisioning for the `Prometheus` datasource (`uid: prometheus`), the `Lab`
 dashboard provider, and the 14-panel `Lab Overview` dashboard (`uid: lab-overview`),
-exposed behind Traefik HTTPS at `https://grafana.localhost` (`auth-dashboard@file`).
+exposed behind Traefik HTTPS at `https://grafana.localhost` using Grafana's native login.
 
 ```bash
 docker compose up -d grafana
@@ -307,8 +309,8 @@ docker compose up -d grafana
 
 ### Why
 
-* **Two authentication layers (`GF_AUTH_BASIC_ENABLED=false`):** Traefik validates
-  `auth-dashboard@file` BasicAuth and forwards `Authorization`, so Grafana disables BasicAuth and keeps web `/login` active.
+* **Traefik TLS termination + Grafana native login:** Traefik terminates TLS
+  on `websecure` without edge BasicAuth, leaving UI login and API BasicAuth cleanly to Grafana (`admin` / `GRAFANA_ADMIN_PASSWORD`).
 * **HTTPS-only exposure via Traefik:** omitting `ports:` keeps HTTP `:3000`
   internal while routing `https://grafana.localhost` through Traefik TLS termination.
 * **Hardening & stateless dev storage:** runs as `uid=472` with `cap_drop: [ALL]`,
@@ -318,32 +320,28 @@ docker compose up -d grafana
 
 ### Verification
 
-> **Two different passwords:** when prompted below, enter the Traefik dashboard
-> BasicAuth password (the same one used for `https://traefik.localhost`), which is
-> distinct from `GRAFANA_ADMIN_PASSWORD` in `.env`.
-
 ```bash
 # Confirm provisioning succeeded in Grafana logs
 docker compose logs grafana | grep -i provision
 # → ... msg="finished to provision ..." (no error lines)
 
-# Without credentials, Traefik blocks access (401)
-curl -sk -o /dev/null -w "%{http_code}\n" --resolve grafana.localhost:443:127.0.0.1 https://grafana.localhost/api/health
-# → 401
+# Load GRAFANA_ADMIN_PASSWORD from .env and verify health and dashboard provisioning via Traefik HTTPS
+set -a && source .env && set +a
 
-# With Traefik BasicAuth credentials, /api/health returns database ok
-read -rs -p "Traefik dashboard password: " TRAEFIK_PW && echo
-curl -sk --resolve grafana.localhost:443:127.0.0.1 -u "admin:${TRAEFIK_PW}" https://grafana.localhost/api/health
+curl -sk --resolve grafana.localhost:443:127.0.0.1 -u "admin:${GRAFANA_ADMIN_PASSWORD}" https://grafana.localhost/api/health
 # → {"database":"ok","version":"13.3.0"}
-unset TRAEFIK_PW
+
+curl -sk --resolve grafana.localhost:443:127.0.0.1 -u "admin:${GRAFANA_ADMIN_PASSWORD}" 'https://grafana.localhost/api/search?query=Lab' \
+  | python3 -c "import sys,json; print([(d['uid'], d['title'], d['folderTitle']) for d in json.load(sys.stdin)])"
+# → [('lab-overview', 'Lab Overview', 'Lab')]
 ```
 
 Open `https://grafana.localhost` in your browser (accept the self-signed
-certificate, enter the Traefik BasicAuth credentials, then log into Grafana with
-`admin` and your `GRAFANA_ADMIN_PASSWORD` from `.env`), navigate to
-**Dashboards > Lab Overview**, and confirm data appears in all five groups:
-**Status**, **Host**, **Containers**, **Traefik** (after at least one HTTPS
-request to `web.localhost` or `grafana.localhost`), and **Synthetic Probes**.
+certificate and log into Grafana with `admin` and your `GRAFANA_ADMIN_PASSWORD`
+from `.env`), navigate to **Dashboards > Lab Overview**, and confirm data appears
+in all five groups: **Status**, **Host**, **Containers**, **Traefik** (after at
+least one HTTPS request to `web.localhost` or `grafana.localhost`), and
+**Synthetic Probes**.
 
 ---
 
@@ -479,16 +477,21 @@ docker compose -f docker-compose.prod.yml exec -T prometheus wget -qO- \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['result'][0]['value'][1])"
 # → <sample-count-preserved-across-restart>
 
-# Verify Grafana HTTPS ingress as in Step 6 (use <host-ip> if verifying from outside the EC2/VM host)
-curl -sk -o /dev/null -w "%{http_code}\n" --resolve grafana.localhost:443:127.0.0.1 https://grafana.localhost/api/health
-# → 401
+# Verify Grafana HTTPS ingress and provisioned dashboard as in Step 6 (use <host-ip> if verifying from outside the EC2/VM host)
+set -a && source .env && set +a
 
-read -rs -p "Traefik dashboard password: " TRAEFIK_PW && echo
-curl -sk --resolve grafana.localhost:443:127.0.0.1 -u "admin:${TRAEFIK_PW}" https://grafana.localhost/api/health
+curl -sk --resolve grafana.localhost:443:127.0.0.1 -u "admin:${GRAFANA_ADMIN_PASSWORD}" https://grafana.localhost/api/health
 # → {"database":"ok","version":"13.3.0"}
-unset TRAEFIK_PW
+
+curl -sk --resolve grafana.localhost:443:127.0.0.1 -u "admin:${GRAFANA_ADMIN_PASSWORD}" 'https://grafana.localhost/api/search?query=Lab' \
+  | python3 -c "import sys,json; print([(d['uid'], d['title'], d['folderTitle']) for d in json.load(sys.stdin)])"
+# → [('lab-overview', 'Lab Overview', 'Lab')]
 ```
 
-Open `https://grafana.localhost` (or SSH-tunnel/resolve to the host IP), log
-in through Traefik BasicAuth and Grafana (`admin` / `GRAFANA_ADMIN_PASSWORD`),
-and verify **Dashboards > Lab Overview** displays persisted and live metrics.
+> **Grafana password persistence:** `GRAFANA_ADMIN_PASSWORD` only applies when
+> Grafana first creates its database in `grafana-data`; to change it later, run
+> `docker exec grafana grafana cli admin reset-admin-password '<new-password>'`.
+
+Open `https://grafana.localhost` (or SSH-tunnel/resolve to the host IP), log in
+to Grafana with `admin` and `GRAFANA_ADMIN_PASSWORD`, and verify
+**Dashboards > Lab Overview** displays persisted and live metrics.
