@@ -2,9 +2,10 @@
 set -euo pipefail
 exec > /var/log/user-data.log 2>&1
 
-# ── Docker Engine ─────────────────────────────────────────────────────────
+# ── Docker Engine & amd64 emulation ───────────────────────────────────────
 apt-get update -y
-apt-get install -y ca-certificates curl gnupg git
+# dns and file-transfer images are amd64 on a Graviton (arm64) host; install qemu-user-static before Compose starts
+apt-get install -y ca-certificates curl gnupg git qemu-user-static
 
 install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
@@ -25,6 +26,19 @@ systemctl start docker
 
 # Allow ubuntu to run Docker without sudo on future SSH sessions (compose up below runs as root)
 usermod -aG docker ubuntu
+
+# ── Swap (1 GiB buffer for t4g.micro memory pressure and amd64 emulation) ─
+if [ ! -f /swapfile ]; then
+  fallocate -l 1G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+elif ! swapon --show=NAME --noheadings | grep -qx /swapfile; then
+  swapon /swapfile
+fi
+if ! grep -qE '^\s*/swapfile\s' /etc/fstab; then
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
 
 # ── Free port 53 (systemd-resolved occupies it by default on Ubuntu 24.04) ──
 mkdir -p /etc/systemd/resolved.conf.d/
@@ -53,6 +67,10 @@ if [ ! -f "$ENV_FILE" ]; then
   chown ubuntu:ubuntu "$ENV_FILE"
 fi
 
+# Ensure ubuntu owns the repository so interactive git commands work without dubious ownership errors
+chown -R ubuntu:ubuntu /home/ubuntu/containerize-your-infra
+
 # ── Stack ─────────────────────────────────────────────────────────────────
 cd /home/ubuntu/containerize-your-infra
 docker compose -f stacks/full-infra/docker/docker-compose.prod.yml up -d
+docker compose -f stacks/full-infra/docker/docker-compose.prod.yml ps
