@@ -7,8 +7,8 @@
 # context), Docker/EC2 Terraform static checks, umbrella chart validation (lint
 # and render for dev and prod) and EKS/registry Terraform static checks. No
 # cluster access and no AWS credentials.
-# Parameters modified from baseline: Kubernetes paths, helm, terraform-kubernetes, and
-# monitoring consistency check added; compose job passes GRAFANA_ADMIN_PASSWORD placeholder
+# Parameters modified from baseline: Kubernetes paths, helm, terraform-kubernetes, monitoring
+# consistency, ignored-file materialization, and user_data.sh checks added
 
 name: full-infra
 
@@ -57,6 +57,17 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+
+      - name: Materialize ignored files from examples
+        run: |
+          # main.tf and outputs.tf are gitignored; without copying from examples, terraform validate checks only variables.tf
+          cp main.tf.example main.tf
+          cp outputs.tf.example outputs.tf
+
+      - name: Check the bootstrap script
+        run: |
+          bash -n user_data.sh
+          shellcheck --severity=warning user_data.sh
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v4

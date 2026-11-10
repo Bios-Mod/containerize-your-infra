@@ -8,8 +8,8 @@
 # only when stack or module Docker paths change; the umbrella chart and the
 # EKS/registry Terraform are validated only when their own paths change. Writes
 # a per-module pass/fail summary into the PR.
-# Parameters modified from baseline: dynamic promtool/blackbox images and monitoring
-# consistency checks added across monitoring and full-infra jobs.
+# Parameters modified from baseline: dynamic promtool/blackbox images, monitoring
+# consistency checks, and full-infra-terraform job added.
 name: pull-request
 
 on:
@@ -29,6 +29,7 @@ jobs:
       reverse-proxy-helm: ${{ steps.filter.outputs.reverse-proxy-helm }}
       monitoring: ${{ steps.filter.outputs.monitoring }}
       full-infra: ${{ steps.filter.outputs.full-infra }}
+      full-infra-terraform: ${{ steps.filter.outputs.full-infra-terraform }}
       full-infra-helm: ${{ steps.filter.outputs.full-infra-helm }}
       full-infra-terraform-kubernetes: ${{ steps.filter.outputs.full-infra-terraform-kubernetes }}
 
@@ -87,6 +88,10 @@ jobs:
               - 'modules/**/docker/**'
               - '.github/workflows/full-infra.yml'
               - '.github/scripts/validate-monitoring.sh'
+
+            full-infra-terraform:
+              - 'stacks/full-infra/docker/automation/terraform/**'
+              - '.github/workflows/full-infra.yml'
 
             full-infra-helm:
               - 'stacks/full-infra/kubernetes/helm/**'
@@ -335,6 +340,41 @@ jobs:
       - name: Build full stack
         run: docker compose -f docker-compose.prod.yml build
 
+  validate-full-infra-terraform:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.full-infra-terraform == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: stacks/full-infra/docker/automation/terraform
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Materialize ignored files from examples
+        run: |
+          # main.tf and outputs.tf are gitignored; without copying from examples, terraform validate checks only variables.tf
+          cp main.tf.example main.tf
+          cp outputs.tf.example outputs.tf
+
+      - name: Check the bootstrap script
+        run: |
+          bash -n user_data.sh
+          shellcheck --severity=warning user_data.sh
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+
+      - name: Terraform format check
+        run: terraform fmt -check
+
+      - name: Terraform init without backend
+        run: terraform init -backend=false
+
+      - name: Terraform validate
+        run: terraform validate
+
   validate-full-infra-helm:
     needs: detect-changes
     if: needs.detect-changes.outputs.full-infra-helm == 'true'
@@ -420,6 +460,7 @@ jobs:
       - validate-reverse-proxy-helm
       - validate-monitoring
       - validate-full-infra
+      - validate-full-infra-terraform
       - validate-full-infra-helm
       - validate-full-infra-terraform-kubernetes
     if: always()
@@ -442,6 +483,7 @@ jobs:
               "reverse-proxy (helm)": "${{ needs.validate-reverse-proxy-helm.result }}",
               "monitoring": "${{ needs.validate-monitoring.result }}",
               "full-infra (docker)": "${{ needs.validate-full-infra.result }}",
+              "full-infra (terraform docker)": "${{ needs.validate-full-infra-terraform.result }}",
               "full-infra (helm)": "${{ needs.validate-full-infra-helm.result }}",
               "full-infra (terraform kubernetes)": "${{ needs.validate-full-infra-terraform-kubernetes.result }}"
             };
