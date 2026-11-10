@@ -430,7 +430,7 @@ without `tmpfs`), `wget` healthchecks on all five containers, `deploy.resources.
 > services are running on `proxy-net` (`dns` and `file-transfer` run as `amd64`
 > via `qemu-user-static` on Graviton `arm64`, slowing initial boot), pull updates,
 > ensure `modules/monitoring/docker/.env` exists (for the unified EC2 stack, see
-> [`Updating a deployed host`](../../../stacks/full-infra/docker/full-infra-docker.md#updating-a-deployed-host)),
+> [`Step 1 — Deploy the Full Stack`](../../../stacks/full-infra/docker/full-infra-docker.md#step-1--deploy-the-full-stack)),
 > and stop dev (`sudo docker compose down`) if active.
 
 ```bash

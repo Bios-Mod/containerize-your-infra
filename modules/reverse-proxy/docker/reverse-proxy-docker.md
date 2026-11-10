@@ -16,7 +16,7 @@ and its own config. Backend services declare their own routing rules via
 labels — the proxy never needs to be restarted when a new backend joins.
 
 This module is self-contained: it defines its own `web-server` backend for
-verification. Integration with the shared `lab-net` network and the other
+verification. Integration with the shared `proxy-net` network and the other
 modules happens in `stacks/full-infra`.
 
 > **Traefik concepts used in this module:**

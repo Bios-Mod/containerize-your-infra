@@ -1,6 +1,6 @@
 # Contributing to containerize-your-infra
 
-This lab is designed as a modular, community-usable reference for Docker deployments.
+This lab is designed as a modular, community-usable reference for Docker and Kubernetes deployments.
 Contributions that improve clarity, correctness, or coverage are welcome.
 
 ---
@@ -32,8 +32,8 @@ discussion avoids duplicated effort and keeps the lab coherent.
      #
      # Parameters modified from baseline:  <param → new value> / none
      # <one-line description>
-   - Doc sections follow the `What was done / Why / Verification` structure
      ```
+   - Doc sections follow the `What was done / Why / Verification` structure
    - Commands are copy-pasteable and tested
 4. If adding a new service module, open an Issue first to align on scope
    - Inline comments explain *why*, not just *what*
