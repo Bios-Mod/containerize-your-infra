@@ -43,11 +43,9 @@ Verify that `proxy-net` exists (created by `reverse-proxy`), enter
 `modules/monitoring/docker/`, and create `.env` from `.env.example` with a
 strong `GRAFANA_ADMIN_PASSWORD` before validating the Compose file.
 
-> **Never commit `.env`:** `modules/monitoring/docker/.env` is listed in
-> `.gitignore`. `docker compose config` fails unless `GRAFANA_ADMIN_PASSWORD` is
-> set in `.env` or the shell environment. `GRAFANA_ADMIN_PASSWORD` is the
-> module's only password (chosen when creating `.env`); run
-> `grep GRAFANA_ADMIN_PASSWORD .env` to recall it later.
+> **`.env` rules:** `modules/monitoring/docker/.env` is gitignored. `docker compose config`
+> fails unless `GRAFANA_ADMIN_PASSWORD` is set (`grep GRAFANA_ADMIN_PASSWORD .env` to recall it).
+> Avoid `$` in the `.env` password (Docker Compose interpolates `$`; escape literal `$` as `$$`).
 
 ```bash
 cd modules/monitoring/docker/
@@ -293,55 +291,68 @@ curl -sk -o /dev/null -w "%{http_code}\n" --resolve traefik.localhost:443:127.0.
 
 ### What was done
 
-Start `grafana` (`grafana/grafana:13.3.0`) on `proxy-net` with read-only
-file provisioning for the `Prometheus` datasource (`uid: prometheus`), the `Lab`
-dashboard provider, and the 14-panel `Lab Overview` dashboard (`uid: lab-overview`),
-exposed behind Traefik HTTPS at `https://grafana.localhost` using Grafana's native login.
+Bring up the monitoring stack (`docker compose up -d`) on `proxy-net` so Grafana
+starts after Prometheus (`depends_on: [prometheus]`) with read-only file provisioning
+for the `Prometheus` datasource (`uid: prometheus`), `Lab` folder provider, and
+14-panel `Lab Overview` dashboard (`uid: lab-overview`), exposed via Traefik HTTPS
+at `https://grafana.localhost` (`GF_SERVER_ROOT_URL=https://grafana.localhost/`).
 
 ```bash
-docker compose up -d grafana
+docker compose up -d
 ```
 
-📄 [`docker-compose.yml`](docker-compose.yml) — `grafana` service, `tmpfs` `/var/lib/grafana`, env vars, and Traefik labels
+📄 [`docker-compose.yml`](docker-compose.yml) — `grafana` service, `tmpfs` mounts, `depends_on`, and Traefik labels
 📄 [`configs/grafana/provisioning/datasources/prometheus.yml`](configs/grafana/provisioning/datasources/prometheus.yml) — default `Prometheus` datasource (`http://prometheus:9090`)
-📄 [`configs/grafana/provisioning/dashboards/lab.yml`](configs/grafana/provisioning/dashboards/lab.yml) — file provider reading `/etc/grafana/dashboards`
+📄 [`configs/grafana/provisioning/dashboards/lab.yml`](configs/grafana/provisioning/dashboards/lab.yml) — file provider loading `/etc/grafana/dashboards` into folder `Lab`
 📄 [`configs/grafana/dashboards/lab-overview.json`](configs/grafana/dashboards/lab-overview.json) — 14 panels covering Status, Host, Containers, Traefik, and Synthetic Probes
 
 ### Why
 
-* **Traefik TLS termination + Grafana native login:** Traefik terminates TLS
-  on `websecure` without edge BasicAuth, leaving UI login and API BasicAuth cleanly to Grafana (`admin` / `GRAFANA_ADMIN_PASSWORD`).
-* **HTTPS-only exposure via Traefik:** omitting `ports:` keeps HTTP `:3000`
-  internal while routing `https://grafana.localhost` through Traefik TLS termination.
+* **Prometheus plugin backend (`GF_PLUGINS_PREINSTALL_DISABLED=true`):** since Grafana 13.2,
+  the Prometheus datasource runs an external Go backend binary (`gpx_*`). Disabling background preinstalls avoids downloading plugin updates onto the `noexec` `/var/lib/grafana` `tmpfs` (`fork/exec: permission denied` / `plugin.notRegistered`), keeping all container hardening intact by running the immutable bundled plugin.
+* **Traefik TLS termination + Grafana native login:** Traefik terminates TLS on
+  `websecure` without edge BasicAuth, leaving UI and API authentication to Grafana (`admin` / `GRAFANA_ADMIN_PASSWORD`) with no published `:3000` host port.
 * **Hardening & stateless dev storage:** runs as `uid=472` with `cap_drop: [ALL]`,
-  `read_only: true`, `no-new-privileges:true`, and `tmpfs` `/var/lib/grafana` and `/tmp`.
-* **Provisioning & custom JSON:** fixed UIDs (`prometheus`, `lab-overview`), `30s`
-  refresh, and `stepAfter` probe lines load reproducibly without external community dashboards.
+  `read_only: true`, `no-new-privileges:true`, and `tmpfs` `/var/lib/grafana` (`noexec`) and `/tmp`.
+* **Deterministic provisioning:** fixed UIDs (`prometheus`, `lab-overview`), `depends_on: [prometheus]`,
+  and `30s` refresh load the dashboard cleanly without external community imports.
 
 ### Verification
 
 ```bash
-# Confirm provisioning succeeded in Grafana logs
+# Confirm provisioning succeeded and no plugin backend errors appear
 docker compose logs grafana | grep -i provision
 # → ... msg="finished to provision ..." (no error lines)
 
-# Load GRAFANA_ADMIN_PASSWORD from .env and verify health and dashboard provisioning via Traefik HTTPS
+# Load GRAFANA_ADMIN_PASSWORD from .env and verify health, datasource backend, and dashboard via Traefik HTTPS
 set -a && source .env && set +a
 
 curl -sk --resolve grafana.localhost:443:127.0.0.1 -u "admin:${GRAFANA_ADMIN_PASSWORD}" https://grafana.localhost/api/health
 # → {"database":"ok","version":"13.3.0"}
+
+curl -sk --resolve grafana.localhost:443:127.0.0.1 -u "admin:${GRAFANA_ADMIN_PASSWORD}" https://grafana.localhost/api/datasources/uid/prometheus/health
+# → {"details":{"application":"Prometheus",...},"message":"Successfully queried the Prometheus API.","status":"OK"}
 
 curl -sk --resolve grafana.localhost:443:127.0.0.1 -u "admin:${GRAFANA_ADMIN_PASSWORD}" 'https://grafana.localhost/api/search?query=Lab' \
   | python3 -c "import sys,json; print([(d['uid'], d['title'], d['folderTitle']) for d in json.load(sys.stdin)])"
 # → [('lab-overview', 'Lab Overview', 'Lab')]
 ```
 
-Open `https://grafana.localhost` in your browser (accept the self-signed
-certificate and log into Grafana with `admin` and your `GRAFANA_ADMIN_PASSWORD`
-from `.env`), navigate to **Dashboards > Lab Overview**, and confirm data appears
-in all five groups: **Status**, **Host**, **Containers**, **Traefik** (after at
-least one HTTPS request to `web.localhost` or `grafana.localhost`), and
+Open `https://grafana.localhost/d/lab-overview` directly (or navigate to
+**Dashboards > Lab > Lab Overview** after accepting the self-signed certificate
+and logging in with `admin` and `GRAFANA_ADMIN_PASSWORD` from `.env`), and confirm
+data appears across **Status**, **Host**, **Containers**, **Traefik**, and
 **Synthetic Probes**.
+
+### Troubleshooting
+
+| Symptom | Check | Resolution |
+|---|---|---|
+| `401` on `/api/health` via Traefik | Stale container keeping `GF_AUTH_BASIC_ENABLED=false` or `auth-dashboard@file` | Recreate container: `docker compose up -d --force-recreate grafana` |
+| `404` on `/api/health` | Router missing in Traefik or wrong network | Check `docker logs traefik` and confirm `grafana` is attached to `proxy-net` |
+| `502` or `504` | Grafana process crashed or did not finish starting | Inspect startup errors with `docker compose logs grafana` |
+| Login rejected | `.env` password has unescaped `$` (interpolated by Compose) or `.env` changed without recreating | Avoid `$` or escape as `$$` in `.env`, inspect `docker compose exec -T grafana printenv GF_SECURITY_ADMIN_PASSWORD`, and run `docker exec grafana grafana cli admin reset-admin-password '<new>'` |
+| Panels show "No data" | Check `GET /api/datasources/uid/prometheus/health` and `docker compose ps prometheus` | `plugin.notRegistered`: ensure `GF_PLUGINS_PREINSTALL_DISABLED=true` is set; Prometheus down: start stack (`docker compose up -d`); also check time range (dev TSDB is ephemeral) |
 
 ---
 
@@ -349,17 +360,17 @@ least one HTTPS request to `web.localhost` or `grafana.localhost`), and
 
 ### What was done
 
-Verify all six Prometheus scrape targets report `up`, generate an HTTPS request
-so Traefik series populate, inject a failure with `docker stop dns` for `30s`
-(two `15s` scrape cycles) to confirm `probe_success{job="blackbox-dns"} == 0` in
-Prometheus and the `Lab Overview` panel, restore `dns`, and shut down the dev stack.
+Verify all six Prometheus scrape targets report `up`, generate an HTTPS request,
+inject a failure with `docker stop dns` for `30s` (two `15s` scrape cycles) to
+confirm `probe_success{job="blackbox-dns"} == 0` in Prometheus and the dashboard,
+restore `dns`, and shut down the dev stack.
 
 ### Why
 
 * **End-to-end outage validation:** stopping `dns` tests UDP `:53` drop detection
   through `blackbox_exporter`, `15s` Prometheus scraping, and Grafana panels without affecting `blackbox-http`.
-* **Dev cleanup impact:** `docker compose down` removes dev containers, discarding
-  ephemeral TSDB data in `/prometheus` and `tmpfs` state in `/var/lib/grafana` while preserving `configs/` and `.env`.
+* **Ephemeral dev cleanup:** `docker compose down` discards ephemeral `/prometheus` TSDB
+  and `/var/lib/grafana` `tmpfs` state while preserving `configs/` and `.env`.
 
 ### Verification
 
@@ -477,7 +488,7 @@ docker compose -f docker-compose.prod.yml exec -T prometheus wget -qO- \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['result'][0]['value'][1])"
 # → <sample-count-preserved-across-restart>
 
-# Verify Grafana HTTPS ingress and provisioned dashboard as in Step 6 (use <host-ip> if verifying from outside the EC2/VM host)
+# Verify Grafana HTTPS ingress and provisioned dashboard on the host (prefix sudo if user is not in the docker group)
 set -a && source .env && set +a
 
 curl -sk --resolve grafana.localhost:443:127.0.0.1 -u "admin:${GRAFANA_ADMIN_PASSWORD}" https://grafana.localhost/api/health
@@ -488,10 +499,13 @@ curl -sk --resolve grafana.localhost:443:127.0.0.1 -u "admin:${GRAFANA_ADMIN_PAS
 # → [('lab-overview', 'Lab Overview', 'Lab')]
 ```
 
-> **Grafana password persistence:** `GRAFANA_ADMIN_PASSWORD` only applies when
-> Grafana first creates its database in `grafana-data`; to change it later, run
-> `docker exec grafana grafana cli admin reset-admin-password '<new-password>'`.
+> **Host Docker permissions & password persistence:** run `sudo docker ...` on Linux
+> hosts unless your user belongs to the `docker` group (effective after starting a new SSH
+> session). `GRAFANA_ADMIN_PASSWORD` applies only when Grafana first creates its database in
+> `grafana-data`; reset it later with `sudo docker exec grafana grafana cli admin reset-admin-password '<new-password>'`.
 
-Open `https://grafana.localhost` (or SSH-tunnel/resolve to the host IP), log in
-to Grafana with `admin` and `GRAFANA_ADMIN_PASSWORD`, and verify
-**Dashboards > Lab Overview** displays persisted and live metrics.
+To access Grafana remotely from your workstation, open an SSH tunnel forwarding
+host port `443` (`ssh -L 8443:localhost:443 ubuntu@<ip>`) and browse to
+`https://grafana.localhost:8443/d/lab-overview` (**Dashboards > Lab > Lab Overview**),
+logging in with `admin` and `GRAFANA_ADMIN_PASSWORD` — editing `/etc/hosts` does not
+route `grafana.localhost` remotely because browsers resolve `*.localhost` strictly to loopback.
