@@ -68,8 +68,14 @@ runtimes to build. `file-transfer`, `dns`, and `reverse-proxy` run
 `docker compose config` for syntax and variable resolution, and
 `docker compose pull` to confirm that image references are valid. `monitoring`
 adds containerised config validation (`promtool check config`,
-`blackbox_exporter --config.check`, and JSON validation of the Grafana
-dashboard) using a placeholder `GRAFANA_ADMIN_PASSWORD` environment variable.
+`blackbox_exporter --config.check`, reading both container images dynamically
+from `docker-compose.prod.yml` via `docker compose config --format json` and
+`jq`, plus JSON validation of the Grafana dashboard) using a placeholder
+`GRAFANA_ADMIN_PASSWORD` environment variable. It also runs
+[`.github/scripts/validate-monitoring.sh`](.github/scripts/validate-monitoring.sh)
+in `module` mode (`yq` syntax checks, `prometheus.yml` `params.module` lookup
+against `blackbox.yml`, Grafana dashboard `uid`/`title` and datasource UID
+cross-check, and existence of bind-mount sources under `configs/`).
 This is appropriate for the current lab scope; a production pipeline could add
 integration tests against running containers.
 
@@ -94,18 +100,28 @@ need no cloud access.
 
 - **Compose job:** validates `docker compose config` against the full stack
   (passing a placeholder `GRAFANA_ADMIN_PASSWORD` for required variable
-  interpolation without an `.env` file on the runner) and runs
+  interpolation without an `.env` file on the runner), runs
+  `.github/scripts/validate-monitoring.sh stack docker-compose.prod.yml` to
+  confirm that non-`localhost` Prometheus scrape target hosts and
+  `relabel_configs` replacements match a rendered Compose service or
+  `container_name` and that bind-mount sources under `modules/` exist on disk
+  (exempting host-generated unversioned keys and certificates matching
+  `*/configs/ssh/*`, `*/configs/keys/*`, and `*/traefik/certs*`), and runs
   `docker compose build` in the stack integration context. The web-server
   Dockerfile is already validated in isolation by `web-server.yml`, but build
   behaviour can differ when it is invoked through the full-stack Compose file.
   Re-running the build here confirms that the integrated Docker stack remains
   valid.
-- **Terraform job:** runs `terraform fmt -check`, `terraform init
-  -backend=false`, and `terraform validate` against
+- **Terraform job:** copies `main.tf.example` to `main.tf` and
+  `outputs.tf.example` to `outputs.tf` (both files are gitignored, so without
+  this materialization step Terraform would validate only `variables.tf`),
+  checks `user_data.sh` with `bash -n` and `shellcheck --severity=warning`, and
+  runs `terraform fmt -check`, `terraform init -backend=false`, and
+  `terraform validate` against
   `stacks/full-infra/docker/automation/terraform/`. These checks validate
-  formatting, provider/module initialization without a remote backend, and
-  internal Terraform configuration syntax. They do not create, modify, or
-  inspect AWS resources.
+  bootstrap shell syntax, formatting, provider/module initialization without a
+  remote backend, and internal Terraform configuration syntax. They do not
+  create, modify, or inspect AWS resources.
 - **Helm job:** builds the dependencies bottom-up — the Traefik dependency of
   `reverse-proxy` first, then the umbrella chart, because the umbrella packages
   `reverse-proxy` as it is on disk — and runs `helm lint` and `helm template`
@@ -115,8 +131,9 @@ need no cloud access.
   names (`web-server-web-server`, `dns-dns`): the umbrella release is called
   `full-infra`, so a name left from the standalone modules would only fail at
   request time.
-- **Terraform Kubernetes job:** runs the same three checks as the Docker
-  Terraform job against `automation/terraform/cluster/` (EKS platform) and
+- **Terraform Kubernetes job:** runs `terraform fmt -check`, `terraform init
+  -backend=false`, and `terraform validate` against
+  `automation/terraform/cluster/` (EKS platform) and
   `automation/terraform/registry/` (ECR repositories) as independent matrix
   entries, since they are separate states.
 
@@ -149,20 +166,25 @@ as a preventive default that manages a secret without a demonstrated need.
 │                         # helm-validate: builds the custom image, lints and templates the Kubernetes chart
 ├── reverse-proxy.yml    # docker-validate: Compose configuration and image references
 │                         # helm-validate: resolves dependencies, lints and templates the Kubernetes chart
-├── monitoring.yml       # Validates Docker Compose configuration, image pulls, and Prometheus/Blackbox/Grafana configs
-├── full-infra.yml       # compose + terraform: integrated Compose and Docker/EC2 Terraform
+├── monitoring.yml       # Validates Docker Compose configuration, image pulls, Prometheus/Blackbox/Grafana configs, and module consistency
+├── full-infra.yml       # compose + terraform: integrated Compose, stack monitoring cross-checks, and Docker/EC2 Terraform
 │                         # helm + terraform-kubernetes: umbrella chart and EKS/registry Terraform
 └── pull-request.yml     # Detects affected Docker, Helm and Terraform paths and publishes a PR summary
 ```
 
+Shared helper script:
+- `.github/scripts/validate-monitoring.sh` (`module` and `stack <compose-file>` modes; uses `jq` plus local `yq` v4 or `mikefarah/yq:4` via Docker as fallback).
+
 Each module workflow triggers on pushes to its corresponding
-`modules/<name>/docker/**` path, its module README, or its own workflow file.
+`modules/<name>/docker/**` path, its module README, or its own workflow file
+(`monitoring.yml` also triggers on `.github/scripts/validate-monitoring.sh`).
 `web-server.yml`, `reverse-proxy.yml` and `dns.yml` additionally trigger on their
 `modules/<name>/kubernetes/**` path, covering both runtimes in one file with two
 independent jobs.
 
 `full-infra.yml` triggers on the Docker and Kubernetes stack paths, the Docker
-and Kubernetes artefacts of the modules, or changes to its workflow definition.
+and Kubernetes artefacts of the modules, `.github/scripts/validate-monitoring.sh`,
+or changes to its workflow definition.
 
 `pull-request.yml` triggers on pull requests targeting `main`. It detects the
 Docker, Helm and Terraform paths affected by the diff and runs only the
@@ -177,7 +199,7 @@ corresponding technical validation jobs.
 | `actions/checkout@v7` | All workflows | Checks out the repository into the runner |
 | `docker/setup-buildx-action@v4` | `web-server.yml`, `dns.yml`, `full-infra.yml`, `pull-request.yml` | Enables BuildKit for Docker image builds |
 | `docker/build-push-action@v7` | `web-server.yml`, `dns.yml`, `pull-request.yml` | Builds the custom web-server and dns images with `push: false` |
-| `hashicorp/setup-terraform@v4` | `full-infra.yml` | Installs Terraform for format and validation checks of both runtimes |
+| `hashicorp/setup-terraform@v4` | `full-infra.yml`, `pull-request.yml` | Installs Terraform for format and validation checks of both runtimes |
 | `azure/setup-helm@v5` | `web-server.yml`, `reverse-proxy.yml`, `dns.yml`, `full-infra.yml`, `pull-request.yml` | Installs Helm for chart lint and template validation |
 
 ---
@@ -207,17 +229,28 @@ Docker module workflows, extended per runtime instead of per module. Both
 filters also match the module README and the workflow file itself, since a
 change there can affect either runtime and neither job can be assumed
 unaffected. Docker-only modules (`file-transfer`, `monitoring`) expose a single
-filter (`file-transfer`, `monitoring`); `validate-monitoring` also runs
-`promtool check config`, `blackbox_exporter --config.check`, and Grafana
-dashboard JSON validation.
+filter (`file-transfer`, `monitoring`); `validate-monitoring` also reads the
+`promtool` and `blackbox_exporter` images from `docker-compose.prod.yml`, runs
+`promtool check config`, `blackbox_exporter --config.check`, Grafana dashboard
+JSON validation, and `.github/scripts/validate-monitoring.sh module` (and
+triggers on changes to that script as well).
 
-**Full-stack validation is path-scoped per runtime in pull requests.** Three
+**Full-stack validation is path-scoped per runtime in pull requests.** Four
 jobs cover `full-infra`, each behind its own filter:
 
 - `validate-full-infra` (Docker) runs when a pull request changes
-  `stacks/full-infra/docker/**`, any `modules/**/docker/**` path, or
-  `.github/workflows/full-infra.yml`, passing a placeholder
-  `GRAFANA_ADMIN_PASSWORD` for Compose interpolation.
+  `stacks/full-infra/docker/**`, any `modules/**/docker/**` path,
+  `.github/workflows/full-infra.yml`, or `.github/scripts/validate-monitoring.sh`,
+  passing a placeholder `GRAFANA_ADMIN_PASSWORD` for Compose interpolation and
+  running `.github/scripts/validate-monitoring.sh stack docker-compose.prod.yml`
+  alongside Compose config and build.
+- `validate-full-infra-terraform` (Docker host Terraform) runs when a pull
+  request changes `stacks/full-infra/docker/automation/terraform/**` or
+  `.github/workflows/full-infra.yml`; it copies `main.tf.example` and
+  `outputs.tf.example` to `main.tf` and `outputs.tf`, checks `user_data.sh`
+  with `bash -n` and `shellcheck --severity=warning`, and runs
+  `terraform fmt -check`, `terraform init -backend=false`, and
+  `terraform validate`.
 - `validate-full-infra-helm` runs when it changes
   `stacks/full-infra/kubernetes/helm/**`, any `modules/**/kubernetes/helm/**`
   path, or the workflow file. It builds the chart dependencies bottom-up, then
@@ -247,6 +280,6 @@ separate tab.
 | `dorny/paths-filter@v4` | Detects which module and stack paths changed in the pull request |
 | `docker/setup-buildx-action@v4` | Enables BuildKit for the web-server and dns build jobs |
 | `docker/build-push-action@v7` | Builds the custom web-server and dns images with `push: false` |
-| `hashicorp/setup-terraform@v4` | Installs Terraform for the EKS and registry format and validation checks |
+| `hashicorp/setup-terraform@v4` | Installs Terraform for the Docker/EC2, EKS, and registry format and validation checks |
 | `azure/setup-helm@v5` | Installs Helm for the module chart and umbrella chart lint and template jobs |
 | `actions/github-script@v9` | Writes the per-module validation summary into the pull request |
