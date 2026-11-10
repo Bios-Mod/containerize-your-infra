@@ -1,12 +1,14 @@
 # Deploy to:   Ubuntu 24.04 LTS — EC2 t4g.micro or local VM
 # Apply:       docker compose -f docker-compose.prod.yml up -d --build
 # Module:      full-infra
-# Requires:    modules/web-server/docker/configs/, modules/file-transfer/docker/configs/,
-#              modules/dns/docker/configs/, modules/reverse-proxy/docker/configs/traefik/certs/
+# Requires:    .env, modules/web-server/docker/configs/, modules/file-transfer/docker/configs/,
+#              modules/dns/docker/configs/, modules/reverse-proxy/docker/configs/traefik/certs/,
+#              modules/monitoring/docker/configs/
 #
 # Full-stack production compose. Aggregates all modules into a single deployable unit.
 # Config files are referenced from each module's configs/ directory — no duplication.
-# Parameters modified from baseline: shared proxy-net, Traefik as sole HTTP/S ingress
+# Parameters modified from baseline: shared proxy-net, Traefik as sole HTTP/S ingress,
+#                                    monitoring services with memory limits and persistent volumes
 
 services:
 
@@ -171,6 +173,165 @@ services:
       proxy-net:
         ipv4_address: 172.21.0.10
 
+  # ── Monitoring ────────────────────────────────────────────────────────────
+  node-exporter:
+    image: prom/node-exporter:v1.12.1
+    container_name: node-exporter
+    restart: unless-stopped
+    pid: host
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - /:/host:ro,rslave
+    command:
+      - "--path.rootfs=/host"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9100/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 64m
+    networks:
+      - proxy-net
+
+  cadvisor:
+    image: ghcr.io/google/cadvisor:v0.60.6
+    container_name: cadvisor
+    restart: unless-stopped
+    privileged: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+    networks:
+      - proxy-net
+
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    container_name: prometheus
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ../../../modules/monitoring/docker/configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--storage.tsdb.retention.size=1GB"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    depends_on:
+      - node-exporter
+      - cadvisor
+    networks:
+      - proxy-net
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.29.1
+    container_name: blackbox-exporter
+    user: "65534:65534"
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ../../../modules/monitoring/docker/configs/blackbox/blackbox.yml:/config/blackbox.yml:ro
+    command:
+      - "--config.file=/config/blackbox.yml"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9115/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 64m
+    networks:
+      - proxy-net
+
+  grafana:
+    image: grafana/grafana:13.3.0
+    container_name: grafana
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_DOMAIN=grafana.localhost
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+    volumes:
+      - ../../../modules/monitoring/docker/configs/grafana/provisioning/datasources/prometheus.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+      - ../../../modules/monitoring/docker/configs/grafana/provisioning/dashboards/lab.yml:/etc/grafana/provisioning/dashboards/lab.yml:ro
+      - ../../../modules/monitoring/docker/configs/grafana/dashboards/lab-overview.json:/etc/grafana/dashboards/lab-overview.json:ro
+      - grafana-data:/var/lib/grafana
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.localhost`)"
+      - "traefik.http.routers.grafana.entrypoints=websecure"
+      - "traefik.http.routers.grafana.tls=true"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 192m
+    networks:
+      - proxy-net
+
 # ── Networks ──────────────────────────────────────────────────────────────
 networks:
   proxy-net:
@@ -187,3 +348,9 @@ volumes:
 
   dns-cache:
     name: dns-cache
+
+  prometheus-data:
+    name: prometheus-data
+
+  grafana-data:
+    name: grafana-data

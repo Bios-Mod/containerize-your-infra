@@ -42,6 +42,14 @@ openssl req -x509 -newkey rsa:4096 \
   -out /home/ubuntu/containerize-your-infra/modules/reverse-proxy/docker/configs/traefik/certs/lab.crt \
   -days 365 -nodes -subj "/CN=localhost"
 
+# ── Monitoring environment (.env) ─────────────────────────────────────────
+ENV_FILE="/home/ubuntu/containerize-your-infra/stacks/full-infra/docker/.env"
+if [ ! -f "$ENV_FILE" ]; then
+  printf 'GRAFANA_ADMIN_PASSWORD=%s\n' "$(openssl rand -base64 18)" > "$ENV_FILE"
+  chmod 600 "$ENV_FILE"
+  chown ubuntu:ubuntu "$ENV_FILE"
+fi
+
 # ── Stack ─────────────────────────────────────────────────────────────────
 cd /home/ubuntu/containerize-your-infra
 docker compose -f stacks/full-infra/docker/docker-compose.prod.yml up -d
