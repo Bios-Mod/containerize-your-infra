@@ -179,9 +179,9 @@ terraform apply containerize.tfplan
 `terraform apply` executes exactly what `plan` described — nothing more. The
 `user_data` script is injected into the instance at launch by the AWS API as
 instance metadata. The script runs as root on first boot via `cloud-init`,
-installs Docker Engine from the official Docker APT repository, clones this
-repo, generates the Traefik TLS certificates and `stacks/full-infra/docker/.env`,
-and runs `docker compose -f stacks/full-infra/docker/docker-compose.prod.yml up -d`.
+installs Docker Engine (plus `qemu-user-static` and a 1 GiB swapfile), clones
+this repo, generates the Traefik TLS certificates, `file-transfer` SSH keys,
+and `stacks/full-infra/docker/.env`, and runs `docker compose -f stacks/full-infra/docker/docker-compose.prod.yml up -d`.
 
 This is the handoff point between layers: Terraform's job ends when the
 instance is running. Docker Compose's job begins inside that instance.
@@ -208,8 +208,9 @@ terraform output
 ### What was done
 
 SSH into the instance and confirm that `user_data.sh` completed successfully:
-Docker Engine is running, the repo is cloned, `stacks/full-infra/docker/.env`
-was generated, and all nine containers are up and healthy.
+Docker Engine is running, the repo is cloned, `stacks/full-infra/docker/.env`,
+TLS certificates, and `file-transfer` SSH keys were generated, and all nine
+containers are up and healthy.
 
 > **Wait 2–3 minutes after `apply` completes** before SSHing in. `cloud-init`
 > runs `user_data.sh` asynchronously after the instance reaches running state, and
@@ -280,6 +281,9 @@ dig @127.0.0.1 dns.lab.local +short
 nc -zv 127.0.0.1 2222
 # → Connection to 127.0.0.1 2222 port [tcp/*] succeeded!
 
+sftp -P 2222 -i modules/file-transfer/docker/configs/keys/labuser_ed25519 -oStrictHostKeyChecking=no labuser@localhost
+# → Connected to localhost.
+
 # ── Grafana (via Traefik HTTPS) ────────────────────────────────────────────
 set -a && source stacks/full-infra/docker/.env && set +a
 curl -sk --resolve grafana.localhost:443:127.0.0.1 \
@@ -295,12 +299,14 @@ the instance ready as soon as the AWS API reports it running. Because `user_data
 redirects all output to `/var/log/user-data.log`, inspecting that log closes the
 loop between infrastructure provisioning and service deployment.
 
-**TLS certificates and Grafana credentials** are not committed to the
+**TLS certificates, SSH keys, and Grafana credentials** are not committed to the
 repository — they are generated automatically by `user_data.sh` after cloning
 the repo and before the stack starts. `openssl` generates a self-signed
 certificate valid for `localhost` under
-`modules/reverse-proxy/docker/configs/traefik/certs/`, and writes a random
-`GRAFANA_ADMIN_PASSWORD` into `stacks/full-infra/docker/.env` (`chmod 600`,
+`modules/reverse-proxy/docker/configs/traefik/certs/`, `ssh-keygen` generates the
+`file-transfer` host and client keys (`labuser_ed25519` stays on the host; host
+fingerprints change when recreating the instance), and a random
+`GRAFANA_ADMIN_PASSWORD` is written to `stacks/full-infra/docker/.env` (`chmod 600`,
 owned by `ubuntu`). The `404` on `https://localhost/dashboard/` is expected —
 the dashboard router rule matches `traefik.localhost`, not the bare IP or
 `localhost`.
@@ -310,6 +316,7 @@ the dashboard router rule matches `traefik.localhost`, not the bare IP or
 | Symptom | Check | Resolution |
 |---|---|---|
 | Container restarting with `exec format error` | Check `qemu-user-static` binfmt handler: `ls /proc/sys/fs/binfmt_misc \| grep -i qemu` | Install `sudo apt-get update && sudo apt-get install -y qemu-user-static`, then restart the affected container |
+| `file-transfer` restarting with `Unable to load host key` or `Is a directory` | Inspect mount targets: `stat -c '%F %a %n' modules/file-transfer/docker/configs/ssh/*` | Stop `file-transfer`, `rmdir` auto-created dirs, regenerate keys per the module doc (`chmod 600`), then run `sudo docker compose -f stacks/full-infra/docker/docker-compose.prod.yml up -d --force-recreate file-transfer` (`--force-recreate` is required or the container keeps the old mount) |
 | `permission denied` on Docker socket | Session opened before `usermod -aG docker ubuntu` took effect | Prefix host commands with `sudo docker ...` or start a new SSH session |
 | `git` fails with `dubious ownership` | Repository directory owned by `root` from `cloud-init` | Run `sudo chown -R ubuntu:ubuntu ~/containerize-your-infra` |
 | Container restarts or OOM kills | Check RAM/swap (`free -m`) and kernel OOM log (`sudo dmesg \| grep -i oom`) | Confirm the 1 GiB `/swapfile` is active (`swapon --show`) or resize the instance |
