@@ -8,8 +8,8 @@
 # only when stack or module Docker paths change; the umbrella chart and the
 # EKS/registry Terraform are validated only when their own paths change. Writes
 # a per-module pass/fail summary into the PR.
-# Parameters modified from baseline: full-infra-helm and
-# full-infra-terraform-kubernetes filters and jobs added; summary extended.
+# Parameters modified from baseline: dynamic promtool/blackbox images, inline monitoring
+# consistency checks, and full-infra-terraform job added.
 name: pull-request
 
 on:
@@ -27,7 +27,9 @@ jobs:
       dns-helm: ${{ steps.filter.outputs.dns-helm }}
       reverse-proxy-docker: ${{ steps.filter.outputs.reverse-proxy-docker }}
       reverse-proxy-helm: ${{ steps.filter.outputs.reverse-proxy-helm }}
+      monitoring: ${{ steps.filter.outputs.monitoring }}
       full-infra: ${{ steps.filter.outputs.full-infra }}
+      full-infra-terraform: ${{ steps.filter.outputs.full-infra-terraform }}
       full-infra-helm: ${{ steps.filter.outputs.full-infra-helm }}
       full-infra-terraform-kubernetes: ${{ steps.filter.outputs.full-infra-terraform-kubernetes }}
 
@@ -75,9 +77,18 @@ jobs:
               - 'modules/reverse-proxy/README.md'
               - '.github/workflows/reverse-proxy.yml'
 
+            monitoring:
+              - 'modules/monitoring/docker/**'
+              - 'modules/monitoring/README.md'
+              - '.github/workflows/monitoring.yml'
+
             full-infra:
               - 'stacks/full-infra/docker/**'
               - 'modules/**/docker/**'
+              - '.github/workflows/full-infra.yml'
+
+            full-infra-terraform:
+              - 'stacks/full-infra/docker/automation/terraform/**'
               - '.github/workflows/full-infra.yml'
 
             full-infra-helm:
@@ -259,10 +270,158 @@ jobs:
       - name: Helm template (prod)
         run: helm template reverse-proxy . -f values.yaml -f values-prod.yaml
 
+  validate-monitoring:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.monitoring == 'true'
+    runs-on: ubuntu-24.04-arm
+    env:
+      GRAFANA_ADMIN_PASSWORD: ci-check
+    defaults:
+      run:
+        working-directory: modules/monitoring/docker/
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Validate development Compose syntax
+        run: docker compose -f docker-compose.yml config --quiet
+
+      - name: Validate production Compose syntax
+        run: docker compose -f docker-compose.prod.yml config --quiet
+
+      - name: Validate Prometheus configuration
+        run: |
+          PROM_IMAGE="$(docker compose -f docker-compose.prod.yml config --format json | jq -r '.services.prometheus.image')"
+          docker run --rm --entrypoint promtool \
+            -v "$PWD/configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
+            "$PROM_IMAGE" \
+            check config /etc/prometheus/prometheus.yml
+
+      - name: Validate Blackbox Exporter configuration
+        run: |
+          BB_IMAGE="$(docker compose -f docker-compose.prod.yml config --format json | jq -r '.services["blackbox-exporter"].image')"
+          docker run --rm \
+            -v "$PWD/configs/blackbox/blackbox.yml:/config/blackbox.yml:ro" \
+            "$BB_IMAGE" \
+            --config.file=/config/blackbox.yml --config.check
+
+      - name: Validate Grafana dashboard JSON
+        run: python3 -m json.tool configs/grafana/dashboards/lab-overview.json > /dev/null
+
+      - name: Validate monitoring YAML syntax
+        run: |
+          shopt -s nullglob
+          ds_files=(configs/grafana/provisioning/datasources/*.yml configs/grafana/provisioning/datasources/*.yaml)
+          dash_files=(configs/grafana/provisioning/dashboards/*.yml configs/grafana/provisioning/dashboards/*.yaml)
+          shopt -u nullglob
+          if [ "${#ds_files[@]}" -eq 0 ]; then
+            echo "::error::No Grafana datasource provisioning YAML files found under configs/grafana/provisioning/datasources" >&2
+            exit 1
+          fi
+          if [ "${#dash_files[@]}" -eq 0 ]; then
+            echo "::error::No Grafana dashboard provisioning YAML files found under configs/grafana/provisioning/dashboards" >&2
+            exit 1
+          fi
+          for f in configs/prometheus/prometheus.yml configs/blackbox/blackbox.yml "${ds_files[@]}" "${dash_files[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "::error::Missing expected YAML file: $f" >&2
+              exit 1
+            fi
+            if ! yq '.' "$f" > /dev/null < /dev/null; then
+              echo "::error::Invalid YAML syntax in $f" >&2
+              exit 1
+            fi
+          done
+
+      - name: Verify Prometheus probe modules exist in Blackbox config
+        run: |
+          prom_json="$(yq -o=json '.' configs/prometheus/prometheus.yml < /dev/null)"
+          bb_json="$(yq -o=json '.' configs/blackbox/blackbox.yml < /dev/null)"
+          bb_modules="$(jq -r '.modules // {} | keys[]' <<< "$bb_json")"
+          prom_mods="$(jq -r '
+            .scrape_configs[]?
+            | .job_name as $job
+            | (.params.module // [])
+            | (if type == "array" then .[] else . end)
+            | "\($job)\t\(.)"
+          ' <<< "$prom_json")"
+          while IFS=$'\t' read -r job mod; do
+            [ -z "$mod" ] && continue
+            if ! grep -Fqx "$mod" <<< "$bb_modules"; then
+              echo "::error::Prometheus job '$job' references blackbox module '$mod', which is missing from .modules in modules/monitoring/docker/configs/blackbox/blackbox.yml" >&2
+              exit 1
+            fi
+          done <<< "$prom_mods"
+
+      - name: Validate Grafana dashboard metadata and datasource
+        run: |
+          dash="configs/grafana/dashboards/lab-overview.json"
+          if [ ! -f "$dash" ]; then
+            echo "::error::Missing Grafana dashboard file: $dash" >&2
+            exit 1
+          fi
+          if ! jq -e '.' "$dash" > /dev/null; then
+            echo "::error::Invalid JSON syntax in $dash" >&2
+            exit 1
+          fi
+          dash_uid="$(jq -r '.uid // ""' "$dash")"
+          dash_title="$(jq -r '.title // ""' "$dash")"
+          if [ -z "${dash_uid//[[:space:]]/}" ]; then
+            echo "::error::Dashboard $dash has an empty or missing uid" >&2
+            exit 1
+          fi
+          if [ -z "${dash_title//[[:space:]]/}" ]; then
+            echo "::error::Dashboard $dash has an empty or missing title" >&2
+            exit 1
+          fi
+          shopt -s nullglob
+          ds_files=(configs/grafana/provisioning/datasources/*.yml configs/grafana/provisioning/datasources/*.yaml)
+          shopt -u nullglob
+          provisioned_uids=""
+          for f in "${ds_files[@]}"; do
+            ds_json="$(yq -o=json '.' "$f" < /dev/null)"
+            provisioned_uids+="$(jq -r '.datasources[]?.uid // empty' <<< "$ds_json")"$'\n'
+          done
+          referenced_uids="$(jq -r '
+            [.. | objects | select(has("datasource")) | .datasource | select(type == "object") | .uid? // empty]
+            | unique
+            | .[]
+          ' "$dash")"
+          if [ -z "$referenced_uids" ]; then
+            echo "::notice::Dashboard $dash references no datasource UIDs; skipping datasource UID cross-check"
+          else
+            while IFS= read -r ref_uid; do
+              [ -z "$ref_uid" ] && continue
+              if ! grep -Fqx "$ref_uid" <<< "$provisioned_uids"; then
+                echo "::error::Dashboard $dash references datasource uid '$ref_uid', which is not provisioned under configs/grafana/provisioning/datasources" >&2
+                exit 1
+              fi
+            done <<< "$referenced_uids"
+          fi
+
+      - name: Verify module bind mount sources exist
+        run: |
+          pwd_real="$(pwd -P)"
+          bind_sources="$(docker compose -f docker-compose.prod.yml config --format json | jq -r '.services[]?.volumes[]? | select(.type == "bind") | .source // empty')"
+          while IFS= read -r src; do
+            [ -z "$src" ] && continue
+            case "$src" in
+              "$pwd_real/configs/"*|"$PWD/configs/"*|configs/*|./configs/*)
+                if [ ! -e "$src" ]; then
+                  echo "::error::Bind mount source does not exist: $src (in modules/monitoring/docker/docker-compose.prod.yml)" >&2
+                  exit 1
+                fi
+                ;;
+            esac
+          done <<< "$bind_sources"
+
   validate-full-infra:
     needs: detect-changes
     if: needs.detect-changes.outputs.full-infra == 'true'
     runs-on: ubuntu-24.04-arm
+    env:
+      GRAFANA_ADMIN_PASSWORD: ci-check
     defaults:
       run:
         working-directory: stacks/full-infra/docker/
@@ -277,8 +436,102 @@ jobs:
       - name: Validate full-stack Compose syntax
         run: docker compose -f docker-compose.prod.yml config
 
+      - name: Verify Prometheus target hosts match stack services
+        run: |
+          prom_file="$GITHUB_WORKSPACE/modules/monitoring/docker/configs/prometheus/prometheus.yml"
+          if [ ! -f "$prom_file" ]; then
+            echo "::error::Missing Prometheus config: $prom_file" >&2
+            exit 1
+          fi
+          prom_json="$(yq -o=json '.' < "$prom_file")"
+          compose_json="$(docker compose -f docker-compose.prod.yml config --format json)"
+          allowed_hosts="$(jq -r '.services // {} | to_entries[] | .key, (.value.container_name // empty)' <<< "$compose_json" | sort -u)"
+          extract_host() {
+            local host="${1#http://}"
+            host="${host#https://}"
+            host="${host%%/*}"
+            host="${host%%:*}"
+            printf '%s\n' "$host"
+          }
+          target_entries="$(jq -r '.scrape_configs[]? | .job_name as $job | .static_configs[]?.targets[]? | "\($job)\t\(.)"' <<< "$prom_json")"
+          while IFS=$'\t' read -r job val; do
+            [ -z "$val" ] && continue
+            host="$(extract_host "$val")"
+            [ "$host" = "localhost" ] && continue
+            if ! grep -Fqx "$host" <<< "$allowed_hosts"; then
+              echo "::error::Prometheus job '$job' target '$val' resolves to host '$host', which matches no service or container_name in docker-compose.prod.yml" >&2
+              exit 1
+            fi
+          done <<< "$target_entries"
+          repl_entries="$(jq -r '.scrape_configs[]? | .job_name as $job | .relabel_configs[]? | select(.replacement? != null and .replacement != "") | "\($job)\t\(.replacement)"' <<< "$prom_json")"
+          while IFS=$'\t' read -r job val; do
+            [ -z "$val" ] && continue
+            host="$(extract_host "$val")"
+            [ "$host" = "localhost" ] && continue
+            if ! grep -Fqx "$host" <<< "$allowed_hosts"; then
+              echo "::error::Prometheus job '$job' relabel replacement '$val' resolves to host '$host', which matches no service or container_name in docker-compose.prod.yml" >&2
+              exit 1
+            fi
+          done <<< "$repl_entries"
+
+      - name: Verify stack bind mount sources exist
+        run: |
+          root_real="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
+          bind_sources="$(docker compose -f docker-compose.prod.yml config --format json | jq -r '.services[]?.volumes[]? | select(.type == "bind") | .source // empty')"
+          while IFS= read -r src; do
+            [ -z "$src" ] && continue
+            case "$src" in
+              "$root_real/modules/"*|"$GITHUB_WORKSPACE/modules/"*|modules/*)
+                case "$src" in
+                  */configs/ssh/*|*/configs/keys/*|*/traefik/certs*)
+                    continue
+                    ;;
+                esac
+                if [ ! -e "$src" ]; then
+                  echo "::error::Bind mount source does not exist: $src (in stacks/full-infra/docker/docker-compose.prod.yml)" >&2
+                  exit 1
+                fi
+                ;;
+            esac
+          done <<< "$bind_sources"
+
       - name: Build full stack
         run: docker compose -f docker-compose.prod.yml build
+
+  validate-full-infra-terraform:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.full-infra-terraform == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: stacks/full-infra/docker/automation/terraform
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Materialize ignored files from examples
+        run: |
+          # main.tf and outputs.tf are gitignored; without copying from examples, terraform validate checks only variables.tf
+          cp main.tf.example main.tf
+          cp outputs.tf.example outputs.tf
+
+      - name: Check the bootstrap script
+        run: |
+          bash -n user_data.sh
+          shellcheck --severity=warning user_data.sh
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+
+      - name: Terraform format check
+        run: terraform fmt -check
+
+      - name: Terraform init without backend
+        run: terraform init -backend=false
+
+      - name: Terraform validate
+        run: terraform validate
 
   validate-full-infra-helm:
     needs: detect-changes
@@ -363,7 +616,9 @@ jobs:
       - validate-dns-helm
       - validate-reverse-proxy-docker
       - validate-reverse-proxy-helm
+      - validate-monitoring
       - validate-full-infra
+      - validate-full-infra-terraform
       - validate-full-infra-helm
       - validate-full-infra-terraform-kubernetes
     if: always()
@@ -384,7 +639,9 @@ jobs:
               "dns (helm)": "${{ needs.validate-dns-helm.result }}",
               "reverse-proxy (docker)": "${{ needs.validate-reverse-proxy-docker.result }}",
               "reverse-proxy (helm)": "${{ needs.validate-reverse-proxy-helm.result }}",
+              "monitoring": "${{ needs.validate-monitoring.result }}",
               "full-infra (docker)": "${{ needs.validate-full-infra.result }}",
+              "full-infra (terraform docker)": "${{ needs.validate-full-infra-terraform.result }}",
               "full-infra (helm)": "${{ needs.validate-full-infra-helm.result }}",
               "full-infra (terraform kubernetes)": "${{ needs.validate-full-infra-terraform-kubernetes.result }}"
             };

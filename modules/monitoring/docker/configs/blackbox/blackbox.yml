@@ -1,0 +1,33 @@
+# Deploy to:   modules/monitoring/docker/configs/blackbox/blackbox.yml
+# Apply:       docker compose up -d (bind mount → /config/blackbox.yml:ro)
+# Module:      monitoring
+# Requires:    none
+#
+# Blackbox exporter probe modules for lab HTTPS (via Traefik) and DNS SOA endpoints.
+# Parameters modified from baseline: defines http_2xx_insecure and dns_lab_soa modules
+#
+# Platform:    Linux / ARM64 / x86_64
+
+modules:
+  http_2xx_insecure:
+    prober: http
+    timeout: 5s
+    http:
+      valid_status_codes: [200]
+      headers:
+        Host: web.localhost
+      fail_if_not_ssl: true
+      preferred_ip_protocol: ip4
+      tls_config:
+        insecure_skip_verify: true
+
+  dns_lab_soa:
+    prober: dns
+    timeout: 5s
+    dns:
+      query_name: lab.local
+      query_type: SOA
+      transport_protocol: udp
+      preferred_ip_protocol: ip4
+      valid_rcodes:
+        - NOERROR

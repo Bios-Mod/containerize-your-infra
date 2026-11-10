@@ -1,0 +1,69 @@
+# Deploy to:   modules/monitoring/docker/configs/prometheus/prometheus.yml
+# Apply:       docker compose up -d (bind mount → /etc/prometheus/prometheus.yml:ro)
+# Module:      monitoring
+# Requires:    none
+#
+# Prometheus scrape configuration — self-monitoring, host (node_exporter), container (cAdvisor), blackbox probes, and Traefik metrics.
+# Parameters modified from baseline: scrape_interval 15s; adds prometheus, node, cadvisor, blackbox-http, blackbox-dns, and traefik jobs
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels:
+          host: lab-docker
+
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+        labels:
+          host: lab-docker
+
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+        labels:
+          host: lab-docker
+
+  - job_name: blackbox-http
+    metrics_path: /probe
+    params:
+      module: [http_2xx_insecure]
+    static_configs:
+      - targets: ["https://traefik"]
+        labels:
+          host: lab-docker
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  - job_name: blackbox-dns
+    metrics_path: /probe
+    params:
+      module: [dns_lab_soa]
+    static_configs:
+      - targets: ["dns:53"]
+        labels:
+          host: lab-docker
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  - job_name: traefik
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["traefik:8080"]
+        labels:
+          host: lab-docker

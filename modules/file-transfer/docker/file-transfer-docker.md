@@ -95,8 +95,9 @@ ssh-keygen -t ed25519 -f configs/ssh/ssh_host_ed25519_key -N ""
 ssh-keygen -t rsa -b 4096 -f configs/ssh/ssh_host_rsa_key -N ""
 ```
 
-> **Do not commit the private host keys to a public repository.**
-> Add `configs/ssh/ssh_host_*` (without `.pub`) to `.gitignore`.
+> **Do not commit generated host keys to a public repository.**
+> `configs/ssh/ssh_host_*` (both private and `.pub` files) are listed in `.gitignore`
+> so each host generates its own SSH host keys on deploy.
 
 📄 `configs/ssh/ssh_host_ed25519_key` — mounted at `/etc/ssh/ssh_host_ed25519_key`
 📄 `configs/ssh/ssh_host_rsa_key` — mounted at `/etc/ssh/ssh_host_rsa_key`
@@ -141,8 +142,9 @@ mkdir -p configs/keys
 ssh-keygen -t ed25519 -f configs/keys/labuser_ed25519 -N ""
 ```
 
-> **Do not commit the private client key to a public repository.**
-> Add `configs/keys/labuser_ed25519` (without `.pub`) to `.gitignore`.
+> **Do not commit generated client keys to a public repository.**
+> Both `configs/keys/labuser_ed25519` and `configs/keys/labuser_ed25519.pub` are
+> listed in `.gitignore` and generated per host.
 
 📄 `configs/keys/labuser_ed25519.pub` — mounted at `/home/labuser/.ssh/keys/labuser_ed25519.pub:ro`
 
@@ -369,9 +371,10 @@ startup and OpenSSH rejects keys with wrong permissions. Upload data moves to a
 named volume in prod: the data directory must survive container replacement
 independently of the host path.
 
-> **EC2 / fresh clone:** Private host keys and client keys are not tracked in the
-> repository. If deploying on a new host after cloning, run the key generation
-> commands from Step 1 and Step 2 before proceeding.
+> **EC2 / fresh clone:** Host and client SSH keys (private and `.pub`) are not
+> tracked in the repository. When deploying EC2 with Terraform, `user_data.sh`
+> generates them automatically on first boot; on a manual deployment after
+> cloning, run Step 1 and Step 2 before starting Compose.
 >
 
 ```bash

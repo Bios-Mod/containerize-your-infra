@@ -7,8 +7,8 @@
 # context), Docker/EC2 Terraform static checks, umbrella chart validation (lint
 # and render for dev and prod) and EKS/registry Terraform static checks. No
 # cluster access and no AWS credentials.
-# Parameters modified from baseline: Kubernetes paths, helm and
-# terraform-kubernetes jobs added; compose and terraform jobs unchanged
+# Parameters modified from baseline: Kubernetes paths, helm, terraform-kubernetes, inline
+# monitoring consistency, ignored-file materialization, and user_data.sh checks added
 
 name: full-infra
 
@@ -25,6 +25,8 @@ on:
 jobs:
   compose:
     runs-on: ubuntu-24.04-arm
+    env:
+      GRAFANA_ADMIN_PASSWORD: ci-check
     defaults:
       run:
         working-directory: stacks/full-infra/docker/
@@ -39,6 +41,65 @@ jobs:
       - name: Validate full-stack Compose syntax
         run: docker compose -f docker-compose.prod.yml config
 
+      - name: Verify Prometheus target hosts match stack services
+        run: |
+          prom_file="$GITHUB_WORKSPACE/modules/monitoring/docker/configs/prometheus/prometheus.yml"
+          if [ ! -f "$prom_file" ]; then
+            echo "::error::Missing Prometheus config: $prom_file" >&2
+            exit 1
+          fi
+          prom_json="$(yq -o=json '.' < "$prom_file")"
+          compose_json="$(docker compose -f docker-compose.prod.yml config --format json)"
+          allowed_hosts="$(jq -r '.services // {} | to_entries[] | .key, (.value.container_name // empty)' <<< "$compose_json" | sort -u)"
+          extract_host() {
+            local host="${1#http://}"
+            host="${host#https://}"
+            host="${host%%/*}"
+            host="${host%%:*}"
+            printf '%s\n' "$host"
+          }
+          target_entries="$(jq -r '.scrape_configs[]? | .job_name as $job | .static_configs[]?.targets[]? | "\($job)\t\(.)"' <<< "$prom_json")"
+          while IFS=$'\t' read -r job val; do
+            [ -z "$val" ] && continue
+            host="$(extract_host "$val")"
+            [ "$host" = "localhost" ] && continue
+            if ! grep -Fqx "$host" <<< "$allowed_hosts"; then
+              echo "::error::Prometheus job '$job' target '$val' resolves to host '$host', which matches no service or container_name in docker-compose.prod.yml" >&2
+              exit 1
+            fi
+          done <<< "$target_entries"
+          repl_entries="$(jq -r '.scrape_configs[]? | .job_name as $job | .relabel_configs[]? | select(.replacement? != null and .replacement != "") | "\($job)\t\(.replacement)"' <<< "$prom_json")"
+          while IFS=$'\t' read -r job val; do
+            [ -z "$val" ] && continue
+            host="$(extract_host "$val")"
+            [ "$host" = "localhost" ] && continue
+            if ! grep -Fqx "$host" <<< "$allowed_hosts"; then
+              echo "::error::Prometheus job '$job' relabel replacement '$val' resolves to host '$host', which matches no service or container_name in docker-compose.prod.yml" >&2
+              exit 1
+            fi
+          done <<< "$repl_entries"
+
+      - name: Verify stack bind mount sources exist
+        run: |
+          root_real="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
+          bind_sources="$(docker compose -f docker-compose.prod.yml config --format json | jq -r '.services[]?.volumes[]? | select(.type == "bind") | .source // empty')"
+          while IFS= read -r src; do
+            [ -z "$src" ] && continue
+            case "$src" in
+              "$root_real/modules/"*|"$GITHUB_WORKSPACE/modules/"*|modules/*)
+                case "$src" in
+                  */configs/ssh/*|*/configs/keys/*|*/traefik/certs*)
+                    continue
+                    ;;
+                esac
+                if [ ! -e "$src" ]; then
+                  echo "::error::Bind mount source does not exist: $src (in stacks/full-infra/docker/docker-compose.prod.yml)" >&2
+                  exit 1
+                fi
+                ;;
+            esac
+          done <<< "$bind_sources"
+
       - name: Build full stack
         run: docker compose -f docker-compose.prod.yml build
 
@@ -51,6 +112,17 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+
+      - name: Materialize ignored files from examples
+        run: |
+          # main.tf and outputs.tf are gitignored; without copying from examples, terraform validate checks only variables.tf
+          cp main.tf.example main.tf
+          cp outputs.tf.example outputs.tf
+
+      - name: Check the bootstrap script
+        run: |
+          bash -n user_data.sh
+          shellcheck --severity=warning user_data.sh
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v4

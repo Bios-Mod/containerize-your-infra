@@ -1,0 +1,20 @@
+# Deploy to:   modules/monitoring/docker/configs/grafana/provisioning/dashboards/lab.yml
+# Apply:       docker compose up -d (bind mount → /etc/grafana/provisioning/dashboards/lab.yml:ro)
+# Module:      monitoring
+# Requires:    configs/grafana/dashboards/lab-overview.json mounted at /etc/grafana/dashboards/
+#
+# Grafana dashboard provider provisioning — loads JSON dashboards from /etc/grafana/dashboards.
+# Parameters modified from baseline: file provider reading /etc/grafana/dashboards
+
+apiVersion: 1
+
+providers:
+  - name: lab
+    orgId: 1
+    folder: Lab
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/dashboards

@@ -1,0 +1,123 @@
+# Deploy to:   modules/monitoring/docker/docker-compose.yml
+# Apply:       docker compose up -d
+# Module:      monitoring
+# Requires:    .env, configs/prometheus/prometheus.yml, configs/blackbox/blackbox.yml, configs/grafana/, external Docker network proxy-net (created by reverse-proxy)
+#
+# Pull-based observability stack (dev): Prometheus, node_exporter, cAdvisor, blackbox_exporter, and Grafana on proxy-net.
+# Parameters modified from baseline: external proxy-net, 15d retention, hardening flags, privileged cAdvisor, Traefik labels for Grafana, GF_PLUGINS_PREINSTALL_DISABLED=true
+
+services:
+  node-exporter:
+    image: prom/node-exporter:v1.12.1
+    container_name: node-exporter
+    restart: "no"
+    pid: host
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - /:/host:ro,rslave
+    command:
+      - "--path.rootfs=/host"
+    networks:
+      - proxy-net
+
+  cadvisor:
+    image: ghcr.io/google/cadvisor:v0.60.6
+    container_name: cadvisor
+    restart: "no"
+    privileged: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    networks:
+      - proxy-net
+
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    container_name: prometheus
+    restart: "no"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+    depends_on:
+      - node-exporter
+      - cadvisor
+    networks:
+      - proxy-net
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.29.1
+    container_name: blackbox-exporter
+    user: "65534:65534"
+    restart: "no"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./configs/blackbox/blackbox.yml:/config/blackbox.yml:ro
+    command:
+      - "--config.file=/config/blackbox.yml"
+    networks:
+      - proxy-net
+
+  grafana:
+    image: grafana/grafana:13.3.0
+    container_name: grafana
+    restart: "no"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /var/lib/grafana:uid=472,gid=472
+      - /tmp
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_DOMAIN=grafana.localhost
+      - GF_SERVER_ROOT_URL=https://grafana.localhost/
+      - GF_PLUGINS_PREINSTALL_DISABLED=true
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+    volumes:
+      - ./configs/grafana/provisioning/datasources/prometheus.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+      - ./configs/grafana/provisioning/dashboards/lab.yml:/etc/grafana/provisioning/dashboards/lab.yml:ro
+      - ./configs/grafana/dashboards/lab-overview.json:/etc/grafana/dashboards/lab-overview.json:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.localhost`)"
+      - "traefik.http.routers.grafana.entrypoints=websecure"
+      - "traefik.http.routers.grafana.tls=true"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+    depends_on:
+      - prometheus
+    networks:
+      - proxy-net
+
+networks:
+  proxy-net:
+    external: true
+    name: proxy-net
