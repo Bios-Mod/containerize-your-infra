@@ -66,18 +66,44 @@ condition inside a job, which runs after the workflow has already started.
 `reverse-proxy`, use published images — there is no Dockerfile in those
 runtimes to build. `file-transfer`, `dns`, and `reverse-proxy` run
 `docker compose config` for syntax and variable resolution, and
-`docker compose pull` to confirm that image references are valid. `monitoring`
-adds containerised config validation (`promtool check config`,
-`blackbox_exporter --config.check`, reading both container images dynamically
-from `docker-compose.prod.yml` via `docker compose config --format json` and
-`jq`, plus JSON validation of the Grafana dashboard) using a placeholder
-`GRAFANA_ADMIN_PASSWORD` environment variable. It also runs
-[`.github/scripts/validate-monitoring.sh`](.github/scripts/validate-monitoring.sh)
-in `module` mode (`yq` syntax checks, `prometheus.yml` `params.module` lookup
-against `blackbox.yml`, Grafana dashboard `uid`/`title` and datasource UID
-cross-check, and existence of bind-mount sources under `configs/`).
+`docker compose pull` to confirm that image references are valid. Using a
+placeholder `GRAFANA_ADMIN_PASSWORD` environment variable, `monitoring` adds:
+
+- **Containerised tool checks:** reads the Prometheus and Blackbox Exporter
+  image tags dynamically from `docker-compose.prod.yml` (`docker compose config
+  --format json` + `jq`) and runs `promtool check config` and
+  `blackbox_exporter --config.check`, plus `python3 -m json.tool` on the Grafana
+  dashboard.
+- **Inline workflow checks (`yq` and `jq` directly on the runner):** four
+  named steps that close cross-file gaps neither Compose nor single-binary
+  checks catch:
+  - `Validate monitoring YAML syntax` — parses `prometheus.yml`, `blackbox.yml`,
+    and Grafana datasource/dashboard provisioning YAML files with `yq`, ensuring
+    each provisioning directory contains at least one file so Grafana does not
+    boot with silent empty provisioning.
+  - `Verify Prometheus probe modules exist in Blackbox config` — confirms every
+    `params.module` referenced in `prometheus.yml` exists under `.modules` in
+    `blackbox.yml` (`promtool` validates Prometheus syntax alone and cannot
+    catch probe module typos that would fail with HTTP `400` at scrape time).
+  - `Validate Grafana dashboard metadata and datasource` — checks valid JSON,
+    non-empty `uid` and `title` on `configs/grafana/dashboards/lab-overview.json`,
+    and cross-checks referenced panel datasource UIDs against provisioned
+    datasources (emitting a `::notice::` if none is referenced) to catch UID
+    drift before deployment.
+  - `Verify module bind mount sources exist` — confirms every bind-mount
+    source under `configs/` in `docker-compose.prod.yml` exists on disk
+    (`docker compose config` does not check host paths, so Docker would create
+    empty directories at runtime).
+
 This is appropriate for the current lab scope; a production pipeline could add
 integration tests against running containers.
+
+**All CI logic lives inline in workflows, with no helper scripts.** Every
+check runs directly inside workflow `run:` steps using preinstalled runner
+tools (`yq`, `jq`, Docker, Helm, Terraform). Centralizing everything under
+`.github/workflows/` matches the rest of the repository and avoids maintaining a
+separate script directory, at the intentional trade-off of repeating the
+monitoring check steps between the push and pull-request workflows.
 
 **`web-server` builds its custom image.** This is the only Docker-runtime module
 with a Dockerfile, justified as a portfolio decision in `decisions-log.md`. Its
@@ -100,18 +126,28 @@ need no cloud access.
 
 - **Compose job:** validates `docker compose config` against the full stack
   (passing a placeholder `GRAFANA_ADMIN_PASSWORD` for required variable
-  interpolation without an `.env` file on the runner), runs
-  `.github/scripts/validate-monitoring.sh stack docker-compose.prod.yml` to
-  confirm that non-`localhost` Prometheus scrape target hosts and
-  `relabel_configs` replacements match a rendered Compose service or
-  `container_name` and that bind-mount sources under `modules/` exist on disk
-  (exempting host-generated unversioned keys and certificates matching
-  `*/configs/ssh/*`, `*/configs/keys/*`, and `*/traefik/certs*`), and runs
-  `docker compose build` in the stack integration context. The web-server
-  Dockerfile is already validated in isolation by `web-server.yml`, but build
-  behaviour can differ when it is invoked through the full-stack Compose file.
-  Re-running the build here confirms that the integrated Docker stack remains
-  valid.
+  interpolation without an `.env` file on the runner), runs two inline
+  cross-module consistency steps (locating the repo root via
+  `$GITHUB_WORKSPACE`), and runs `docker compose build` in the stack
+  integration context:
+  - `Verify Prometheus target hosts match stack services` — parses
+    `modules/monitoring/docker/configs/prometheus/prometheus.yml` and the
+    rendered full-stack Compose JSON to confirm every non-`localhost` host in
+    `static_configs[].targets` and non-empty `relabel_configs[].replacement`
+    matches a Compose service name or `container_name`. Because the stack shares
+    the module's Prometheus config, this catches stale container or service
+    renames that isolated module checks cannot see.
+  - `Verify stack bind mount sources exist` — inspects every bind-mount source
+    under `modules/` in the rendered `docker-compose.prod.yml` and confirms the
+    path exists on disk, exempting host-generated unversioned keys and
+    certificates matching `*/configs/ssh/*`, `*/configs/keys/*`, and
+    `*/traefik/certs*` (created during host setup rather than committed) so
+    missing repository config files are caught before Docker silently creates
+    empty directories.
+  The web-server Dockerfile is already validated in isolation by
+  `web-server.yml`, but build behaviour can differ when it is invoked through
+  the full-stack Compose file. Re-running the build here confirms that the
+  integrated Docker stack remains valid.
 - **Terraform job:** copies `main.tf.example` to `main.tf` and
   `outputs.tf.example` to `outputs.tf` (both files are gitignored, so without
   this materialization step Terraform would validate only `variables.tf`),
@@ -166,25 +202,20 @@ as a preventive default that manages a secret without a demonstrated need.
 │                         # helm-validate: builds the custom image, lints and templates the Kubernetes chart
 ├── reverse-proxy.yml    # docker-validate: Compose configuration and image references
 │                         # helm-validate: resolves dependencies, lints and templates the Kubernetes chart
-├── monitoring.yml       # Validates Docker Compose configuration, image pulls, Prometheus/Blackbox/Grafana configs, and module consistency
-├── full-infra.yml       # compose + terraform: integrated Compose, stack monitoring cross-checks, and Docker/EC2 Terraform
+├── monitoring.yml       # Validates Docker Compose syntax and image pulls, Prometheus/Blackbox/Grafana configs, and inline module checks
+├── full-infra.yml       # compose + terraform: integrated Compose, inline stack cross-checks, and Docker/EC2 Terraform
 │                         # helm + terraform-kubernetes: umbrella chart and EKS/registry Terraform
 └── pull-request.yml     # Detects affected Docker, Helm and Terraform paths and publishes a PR summary
 ```
 
-Shared helper script:
-- `.github/scripts/validate-monitoring.sh` (`module` and `stack <compose-file>` modes; uses `jq` plus local `yq` v4 or `mikefarah/yq:4` via Docker as fallback).
-
 Each module workflow triggers on pushes to its corresponding
-`modules/<name>/docker/**` path, its module README, or its own workflow file
-(`monitoring.yml` also triggers on `.github/scripts/validate-monitoring.sh`).
+`modules/<name>/docker/**` path, its module README, or its own workflow file.
 `web-server.yml`, `reverse-proxy.yml` and `dns.yml` additionally trigger on their
 `modules/<name>/kubernetes/**` path, covering both runtimes in one file with two
 independent jobs.
 
 `full-infra.yml` triggers on the Docker and Kubernetes stack paths, the Docker
-and Kubernetes artefacts of the modules, `.github/scripts/validate-monitoring.sh`,
-or changes to its workflow definition.
+and Kubernetes artefacts of the modules, or changes to its workflow definition.
 
 `pull-request.yml` triggers on pull requests targeting `main`. It detects the
 Docker, Helm and Terraform paths affected by the diff and runs only the
@@ -229,21 +260,23 @@ Docker module workflows, extended per runtime instead of per module. Both
 filters also match the module README and the workflow file itself, since a
 change there can affect either runtime and neither job can be assumed
 unaffected. Docker-only modules (`file-transfer`, `monitoring`) expose a single
-filter (`file-transfer`, `monitoring`); `validate-monitoring` also reads the
-`promtool` and `blackbox_exporter` images from `docker-compose.prod.yml`, runs
-`promtool check config`, `blackbox_exporter --config.check`, Grafana dashboard
-JSON validation, and `.github/scripts/validate-monitoring.sh module` (and
-triggers on changes to that script as well).
+filter (`file-transfer`, `monitoring`); `validate-monitoring` reads the
+`promtool` and `blackbox_exporter` images dynamically from
+`docker-compose.prod.yml` and runs `promtool check config`,
+`blackbox_exporter --config.check`, Grafana dashboard JSON validation, and the
+same four inline YAML, probe-module, dashboard metadata/datasource, and
+`configs/` bind-mount steps as `monitoring.yml`.
 
 **Full-stack validation is path-scoped per runtime in pull requests.** Four
 jobs cover `full-infra`, each behind its own filter:
 
 - `validate-full-infra` (Docker) runs when a pull request changes
-  `stacks/full-infra/docker/**`, any `modules/**/docker/**` path,
-  `.github/workflows/full-infra.yml`, or `.github/scripts/validate-monitoring.sh`,
-  passing a placeholder `GRAFANA_ADMIN_PASSWORD` for Compose interpolation and
-  running `.github/scripts/validate-monitoring.sh stack docker-compose.prod.yml`
-  alongside Compose config and build.
+  `stacks/full-infra/docker/**`, any `modules/**/docker/**` path, or
+  `.github/workflows/full-infra.yml`, passing a placeholder
+  `GRAFANA_ADMIN_PASSWORD` for Compose interpolation and running Compose config,
+  the inline Prometheus target-host and bind-mount checks (preserving the
+  `*/configs/ssh/*`, `*/configs/keys/*`, and `*/traefik/certs*` exemption), and
+  Compose build.
 - `validate-full-infra-terraform` (Docker host Terraform) runs when a pull
   request changes `stacks/full-infra/docker/automation/terraform/**` or
   `.github/workflows/full-infra.yml`; it copies `main.tf.example` and
