@@ -7,12 +7,14 @@
 AGENTS.md
 context/
 
-# SSH host keys — private keys must never be committed
+# SSH host keys — private keys must never be committed; public keys are generated per host
 modules/file-transfer/docker/configs/ssh/ssh_host_ed25519_key
 modules/file-transfer/docker/configs/ssh/ssh_host_rsa_key
+modules/file-transfer/docker/configs/ssh/ssh_host_*.pub
 
-# Client key pairs — private key must never be committed
+# Client key pairs — private key must never be committed; public key is generated per host
 modules/file-transfer/docker/configs/keys/labuser_ed25519
+modules/file-transfer/docker/configs/keys/labuser_ed25519.pub
 
 # Runtime data — not tracked, recreated on deploy
 modules/file-transfer/docker/data/
