@@ -2,17 +2,11 @@
 
 # containerize-your-infra — Containerized Infrastructure Lab
 
-[![Web Server CI](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/web-server.yml/badge.svg)](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/web-server.yml)
-[![File Transfer CI](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/file-transfer.yml/badge.svg)](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/file-transfer.yml)
-[![DNS CI](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/dns.yml/badge.svg)](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/dns.yml)
-[![Reverse Proxy CI](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/reverse-proxy.yml/badge.svg)](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/reverse-proxy.yml)
-[![Full Infra CI](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/full-infra.yml/badge.svg)](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/full-infra.yml)
-[![Pull Request CI](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/pull-request.yml/badge.svg)](https://github.com/Bios-Mod/containerize-your-infra/actions/workflows/pull-request.yml)
-
 [![Docker](https://img.shields.io/badge/Nginx-custom%20image-009639?style=flat-square&logo=docker&logoColor=white)](modules/web-server/README.md)
 [![BIND9](https://img.shields.io/badge/BIND9-DNS-informational?style=flat-square)](modules/dns/README.md)
 [![SFTP](https://img.shields.io/badge/SFTP-file--transfer-blue?style=flat-square)](modules/file-transfer/README.md)
 [![Traefik](https://img.shields.io/badge/Traefik-reverse--proxy-24A1C1?style=flat-square&logo=traefikproxy&logoColor=white)](modules/reverse-proxy/README.md)
+[![Prometheus & Grafana](https://img.shields.io/badge/Prometheus%20%26%20Grafana-monitoring-E6522C?style=flat-square&logo=prometheus&logoColor=white)](modules/monitoring/README.md)
 [![Docker](https://img.shields.io/badge/Docker-Engine-2496ED?style=flat-square&logo=docker&logoColor=white)](environments/docker/dev/setup.md)
 [![Compose](https://img.shields.io/badge/Compose-v2-2496ED?style=flat-square&logo=docker&logoColor=white)](environments/README.md)
 [![Ubuntu](https://img.shields.io/badge/Ubuntu-24.04%20LTS-orange?style=flat-square&logo=ubuntu&logoColor=white)](environments/docker/prod/setup.md)
@@ -31,8 +25,8 @@ over EC2. Kubernetes covers a single Amazon EKS cluster with logical dev and
 prod environments, packaged with Helm.
 
 Each module covers a real infrastructure service — DNS, file transfer, web
-server, and reverse proxy — with the reasoning behind every decision explained
-inline.
+server, reverse proxy, and monitoring — with the reasoning behind every
+decision explained inline.
 
 Built and tested on Ubuntu 24.04 LTS and macOS on Apple Silicon. Docker Engine
 runs on Linux hosts, including EC2 t4g.micro, while OrbStack provides the local
@@ -65,8 +59,9 @@ infrastructure stack. Kubernetes does not replace the Docker implementation.
 
 1. Choose your Docker environment and follow its setup guide
 2. Apply modules in order — each module is independent and self-contained
-3. Deploy the full Docker stack once all modules are verified
-4. Provision the Docker production host on EC2 with Terraform —
+3. Deploy the full Docker stack (including monitoring) once all modules are verified
+4. Provision the Docker production host on EC2 with Terraform — provisions EC2
+   and launches the full 9-container stack automatically —
    [`stacks/full-infra/docker/automation.md`](stacks/full-infra/docker/automation.md)
 
 **Kubernetes**
@@ -123,6 +118,10 @@ Set up the target environment before applying any module:
 - **Kubernetes prod** — EKS namespace `full-infra-prod` →
   [`environments/kubernetes/prod/setup.md`](environments/kubernetes/prod/setup.md)
 
+> **ARM64 / Graviton note:** in Docker prod on Graviton (`arm64`), the `dns` and
+> `file-transfer` images are `amd64`-only and run under emulation
+> (`qemu-user-static`, installed by the Terraform bootstrap).
+
 ---
 
 ## Modules
@@ -133,6 +132,7 @@ Set up the target environment before applying any module:
 | File Transfer | Docker | SFTP (OpenSSH subsystem) | [`modules/file-transfer/`](modules/file-transfer/README.md) |
 | DNS | Docker · Kubernetes | BIND9 | [`modules/dns/`](modules/dns/README.md) |
 | Reverse Proxy | Docker · Kubernetes | Nginx proxy block | [`modules/reverse-proxy/`](modules/reverse-proxy/README.md) |
+| Monitoring | Docker | Prometheus, Grafana, node_exporter, blackbox_exporter | [`modules/monitoring/`](modules/monitoring/README.md) |
 | Full Infrastructure Stack | Docker · Kubernetes | All modules combined | [`stacks/full-infra/`](stacks/full-infra/README.md) |
 
 ---
@@ -151,7 +151,9 @@ the other.
 | Kubernetes | Services | Helm | web-server, reverse-proxy and dns in one umbrella release |
 
 **Docker.** A single Terraform configuration defines the host. On first boot,
-`user_data` installs Docker Engine, clones this repository, and launches the
+`user_data` installs Docker Engine, `qemu-user-static` emulation, and a 1 GiB
+swapfile, clones this repository, generates Traefik TLS certificates,
+`file-transfer` SSH keys, and Grafana credentials in `.env`, and launches the
 Docker full stack automatically.
 
 **Kubernetes.** Two Terraform states with separate lifecycles: the EKS platform
@@ -159,10 +161,11 @@ and the ECR registry, which outlives the cluster. Container images are built
 and pushed, and the umbrella chart is installed, following
 [`full-infra-kubernetes.md`](stacks/full-infra/kubernetes/full-infra-kubernetes.md).
 
-Terraform is validated in CI with formatting and static configuration checks.
-Cloud-facing operations, including `terraform plan` and `terraform apply`, are
-performed manually with local AWS credentials before infrastructure changes are
-applied.
+Terraform is validated in CI with formatting and static configuration checks
+(materializing ignored `.example` files and linting `user_data.sh` for the
+Docker host configuration). Cloud-facing operations, including `terraform plan`
+and `terraform apply`, are performed manually with local AWS credentials before
+infrastructure changes are applied.
 
 See [`stacks/full-infra/docker/automation.md`](stacks/full-infra/docker/automation.md)
 and [`stacks/full-infra/kubernetes/automation.md`](stacks/full-infra/kubernetes/automation.md)
@@ -183,11 +186,12 @@ filter, so a change in one module does not run unrelated checks.
 | `file-transfer.yml` | `modules/file-transfer/docker/**` | Compose configuration and image references |
 | `dns.yml` | `modules/dns/docker/**`, `modules/dns/kubernetes/**` | Compose configuration and image references (Docker); custom image build, chart lint and template render (Kubernetes) |
 | `reverse-proxy.yml` | `modules/reverse-proxy/docker/**`, `modules/reverse-proxy/kubernetes/**` | Compose configuration and image references (Docker); chart dependency resolution, lint and template render (Kubernetes) |
-| `full-infra.yml` | Docker and Kubernetes stack paths, module Docker and Kubernetes paths | Full-stack Compose config/build and Docker/EC2 Terraform; umbrella chart lint and render, EKS and registry Terraform |
-| `pull-request.yml` | Changed Docker, Helm and Terraform paths | Path-scoped module and full-stack validation, both runtimes |
+| `monitoring.yml` | `modules/monitoring/docker/**` | Compose configuration, image pulls, `promtool`, `blackbox_exporter`, Grafana dashboard JSON, and inline config consistency checks |
+| `full-infra.yml` | Docker and Kubernetes stack paths, module Docker and Kubernetes paths | Full-stack Compose config/build, monitoring-stack consistency, and Docker/EC2 Terraform (with `.example` files and `user_data.sh` checks); umbrella chart lint and render, EKS and registry Terraform |
+| `pull-request.yml` | Changed Docker, Helm and Terraform paths | Path-scoped module, monitoring consistency, full-stack, and Docker/EKS Terraform validation, both runtimes |
 
-Both runtimes are validated in the same workflow file, as independent jobs. CI
-does not deploy anything and never uses AWS credentials.
+Modules with both runtimes validate them in the same workflow file, as independent
+jobs. CI does not deploy anything and never uses AWS credentials.
 
 See [`continuous-integration.md`](continuous-integration.md) for the full
 implementation and design decisions.
@@ -239,6 +243,16 @@ implementation and design decisions.
 │   │   │   ├── docker-compose.yml
 │   │   │   └── file-transfer-docker.md
 │   │   └── README.md
+│   ├── monitoring
+│   │   ├── docker
+│   │   │   ├── configs
+│   │   │   │   ├── blackbox
+│   │   │   │   ├── grafana
+│   │   │   │   └── prometheus
+│   │   │   ├── docker-compose.prod.yml
+│   │   │   ├── docker-compose.yml
+│   │   │   └── monitoring-docker.md
+│   │   └── README.md
 │   ├── reverse-proxy
 │   │   ├── docker
 │   │   │   ├── configs
@@ -273,6 +287,7 @@ implementation and design decisions.
 │       │   │   └── terraform
 │       │   ├── automation.md
 │       │   ├── docker-compose.prod.yml
+│       │   ├── .env.example
 │       │   └── full-infra-docker.md
 │       ├── kubernetes
 │       │   ├── automation
