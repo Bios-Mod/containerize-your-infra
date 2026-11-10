@@ -155,7 +155,7 @@ services:
       - ../../../modules/dns/docker/configs/bind/named.conf.options:/etc/bind/named.conf.options:ro
       - ../../../modules/dns/docker/configs/bind/named.conf.local:/etc/bind/named.conf.local:ro
       - ../../../modules/dns/docker/configs/bind/db.lab.local:/etc/bind/db.lab.local:ro
-      - ../../../modules/dns/docker/configs/bind/db.172.20.0:/etc/bind/db.172.20.0:ro
+      - ../../../modules/dns/docker/configs/bind/db.172.21.0:/etc/bind/db.172.21.0:ro
       - dns-cache:/var/cache/bind
 
     command: ["-g"]

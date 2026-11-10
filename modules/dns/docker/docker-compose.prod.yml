@@ -1,7 +1,7 @@
 # Deploy to:   Ubuntu 24.04 LTS — EC2 t4g.micro or local VM
 # Apply:       docker compose -f docker-compose.prod.yml up -d
 # Module:      dns
-# Requires:    configs/bind/named.conf, named.conf.options, named.conf.local, db.lab.local, db.172.20.0
+# Requires:    configs/bind/named.conf, named.conf.options, named.conf.local, db.lab.local, db.172.21.0
 #
 # Production compose for the dns module.
 # Parameters modified from baseline: restart, read-only config mounts, named volume for cache, healthcheck
@@ -23,7 +23,7 @@ services:
       - ./configs/bind/named.conf.options:/etc/bind/named.conf.options:ro
       - ./configs/bind/named.conf.local:/etc/bind/named.conf.local:ro
       - ./configs/bind/db.lab.local:/etc/bind/db.lab.local:ro
-      - ./configs/bind/db.172.20.0:/etc/bind/db.172.20.0:ro
+      - ./configs/bind/db.172.21.0:/etc/bind/db.172.21.0:ro
       - dns-cache:/var/cache/bind
     networks:
       lab-net:

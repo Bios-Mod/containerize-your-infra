@@ -85,7 +85,7 @@ stat -c "%a %n" modules/file-transfer/docker/configs/ssh/ssh_host_ed25519_key mo
 ```bash
 # BIND9 zone files
 ls modules/dns/docker/configs/bind/
-# → named.conf  named.conf.options  named.conf.local  db.lab.local  db.172.20.0
+# → named.conf  named.conf.options  named.conf.local  db.lab.local  db.172.21.0
 
 # Nginx config and HTML — required at build time (Dockerfile COPY), not runtime mount
 ls modules/web-server/docker/configs/nginx/ modules/web-server/docker/configs/html/
