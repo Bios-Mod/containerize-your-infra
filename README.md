@@ -235,8 +235,6 @@ implementation and design decisions.
 │   │   │   ├── configs
 │   │   │   │   ├── keys
 │   │   │   │   └── ssh
-│   │   │   ├── data
-│   │   │   │   └── upload
 │   │   │   ├── docker-compose.prod.yml
 │   │   │   ├── docker-compose.yml
 │   │   │   └── file-transfer-docker.md
