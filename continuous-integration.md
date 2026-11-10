@@ -62,11 +62,15 @@ start — it is not skipped, it never triggers. This is different from an `if:`
 condition inside a job, which runs after the workflow has already started.
 
 **Official-image runtimes validate configuration, not builds.**
-`file-transfer`, and the Docker runtimes of `dns` and `reverse-proxy`, use
-published images — there is no Dockerfile in those runtimes to build. Their
-workflows run `docker compose config` for syntax and variable resolution, and
-`docker compose pull` to confirm that image references are valid. This is
-appropriate for the current lab scope; a production pipeline could add
+`file-transfer`, `monitoring`, and the Docker runtimes of `dns` and
+`reverse-proxy`, use published images — there is no Dockerfile in those
+runtimes to build. `file-transfer`, `dns`, and `reverse-proxy` run
+`docker compose config` for syntax and variable resolution, and
+`docker compose pull` to confirm that image references are valid. `monitoring`
+adds containerised config validation (`promtool check config`,
+`blackbox_exporter --config.check`, and JSON validation of the Grafana
+dashboard) using a placeholder `GRAFANA_ADMIN_PASSWORD` environment variable.
+This is appropriate for the current lab scope; a production pipeline could add
 integration tests against running containers.
 
 **`web-server` builds its custom image.** This is the only Docker-runtime module
@@ -88,12 +92,14 @@ workflow has four independent jobs. It triggers on changes under
 file. A change in any covered path runs all four jobs; the checks are cheap and
 need no cloud access.
 
-- **Compose job:** validates `docker compose config` against the full stack and
-  runs `docker compose build` in the stack integration context. The
-  web-server Dockerfile is already validated in isolation by `web-server.yml`,
-  but build behaviour can differ when it is invoked through the full-stack
-  Compose file. Re-running the build here confirms that the integrated Docker
-  stack remains valid.
+- **Compose job:** validates `docker compose config` against the full stack
+  (passing a placeholder `GRAFANA_ADMIN_PASSWORD` for required variable
+  interpolation without an `.env` file on the runner) and runs
+  `docker compose build` in the stack integration context. The web-server
+  Dockerfile is already validated in isolation by `web-server.yml`, but build
+  behaviour can differ when it is invoked through the full-stack Compose file.
+  Re-running the build here confirms that the integrated Docker stack remains
+  valid.
 - **Terraform job:** runs `terraform fmt -check`, `terraform init
   -backend=false`, and `terraform validate` against
   `stacks/full-infra/docker/automation/terraform/`. These checks validate
@@ -143,6 +149,7 @@ as a preventive default that manages a secret without a demonstrated need.
 │                         # helm-validate: builds the custom image, lints and templates the Kubernetes chart
 ├── reverse-proxy.yml    # docker-validate: Compose configuration and image references
 │                         # helm-validate: resolves dependencies, lints and templates the Kubernetes chart
+├── monitoring.yml       # Validates Docker Compose configuration, image pulls, and Prometheus/Blackbox/Grafana configs
 ├── full-infra.yml       # compose + terraform: integrated Compose and Docker/EC2 Terraform
 │                         # helm + terraform-kubernetes: umbrella chart and EKS/registry Terraform
 └── pull-request.yml     # Detects affected Docker, Helm and Terraform paths and publishes a PR summary
@@ -199,14 +206,18 @@ trigger the Docker job — same compute-avoidance discipline already applied to
 Docker module workflows, extended per runtime instead of per module. Both
 filters also match the module README and the workflow file itself, since a
 change there can affect either runtime and neither job can be assumed
-unaffected.
+unaffected. Docker-only modules (`file-transfer`, `monitoring`) expose a single
+filter (`file-transfer`, `monitoring`); `validate-monitoring` also runs
+`promtool check config`, `blackbox_exporter --config.check`, and Grafana
+dashboard JSON validation.
 
 **Full-stack validation is path-scoped per runtime in pull requests.** Three
 jobs cover `full-infra`, each behind its own filter:
 
 - `validate-full-infra` (Docker) runs when a pull request changes
   `stacks/full-infra/docker/**`, any `modules/**/docker/**` path, or
-  `.github/workflows/full-infra.yml`.
+  `.github/workflows/full-infra.yml`, passing a placeholder
+  `GRAFANA_ADMIN_PASSWORD` for Compose interpolation.
 - `validate-full-infra-helm` runs when it changes
   `stacks/full-infra/kubernetes/helm/**`, any `modules/**/kubernetes/helm/**`
   path, or the workflow file. It builds the chart dependencies bottom-up, then

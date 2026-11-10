@@ -1,0 +1,62 @@
+# Deploy to:   GitHub Actions runner
+# Apply:       automatic on push (paths filter)
+# Module:      monitoring
+# Requires:    none
+#
+# Validates the monitoring module Docker runtime: Compose syntax (dev and prod)
+# with a dummy GRAFANA_ADMIN_PASSWORD, image resolution, Prometheus config
+# (promtool), Blackbox Exporter config (--config.check), and Grafana dashboard
+# JSON syntax. No container startup, no external proxy-net required.
+# Parameters modified from baseline: adds promtool, blackbox_exporter, and JSON checks
+
+name: monitoring
+
+on:
+  push:
+    branches: main
+    paths:
+      - "modules/monitoring/docker/**"
+      - "modules/monitoring/README.md"
+      - ".github/workflows/monitoring.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04-arm
+    env:
+      GRAFANA_ADMIN_PASSWORD: ci-check
+    defaults:
+      run:
+        working-directory: modules/monitoring/docker/
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Validate development Compose syntax
+        run: docker compose -f docker-compose.yml config --quiet
+
+      - name: Validate production Compose syntax
+        run: docker compose -f docker-compose.prod.yml config --quiet
+
+      - name: Pull development images
+        run: docker compose -f docker-compose.yml pull
+
+      - name: Pull production images
+        run: docker compose -f docker-compose.prod.yml pull
+
+      - name: Validate Prometheus configuration
+        run: |
+          docker run --rm --entrypoint promtool \
+            -v "$PWD/configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
+            prom/prometheus:v3.16.0 \
+            check config /etc/prometheus/prometheus.yml
+
+      - name: Validate Blackbox Exporter configuration
+        run: |
+          docker run --rm \
+            -v "$PWD/configs/blackbox/blackbox.yml:/config/blackbox.yml:ro" \
+            prom/blackbox-exporter:v0.29.1 \
+            --config.file=/config/blackbox.yml --config.check
+
+      - name: Validate Grafana dashboard JSON
+        run: python3 -m json.tool configs/grafana/dashboards/lab-overview.json > /dev/null

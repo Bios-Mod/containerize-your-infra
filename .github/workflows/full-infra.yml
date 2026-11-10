@@ -8,7 +8,7 @@
 # and render for dev and prod) and EKS/registry Terraform static checks. No
 # cluster access and no AWS credentials.
 # Parameters modified from baseline: Kubernetes paths, helm and
-# terraform-kubernetes jobs added; compose and terraform jobs unchanged
+# terraform-kubernetes jobs added; compose job passes GRAFANA_ADMIN_PASSWORD placeholder
 
 name: full-infra
 
@@ -25,6 +25,8 @@ on:
 jobs:
   compose:
     runs-on: ubuntu-24.04-arm
+    env:
+      GRAFANA_ADMIN_PASSWORD: ci-check
     defaults:
       run:
         working-directory: stacks/full-infra/docker/

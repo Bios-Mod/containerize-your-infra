@@ -8,8 +8,8 @@
 # only when stack or module Docker paths change; the umbrella chart and the
 # EKS/registry Terraform are validated only when their own paths change. Writes
 # a per-module pass/fail summary into the PR.
-# Parameters modified from baseline: full-infra-helm and
-# full-infra-terraform-kubernetes filters and jobs added; summary extended.
+# Parameters modified from baseline: monitoring filter and job added,
+# validate-full-infra passes GRAFANA_ADMIN_PASSWORD placeholder; summary extended.
 name: pull-request
 
 on:
@@ -27,6 +27,7 @@ jobs:
       dns-helm: ${{ steps.filter.outputs.dns-helm }}
       reverse-proxy-docker: ${{ steps.filter.outputs.reverse-proxy-docker }}
       reverse-proxy-helm: ${{ steps.filter.outputs.reverse-proxy-helm }}
+      monitoring: ${{ steps.filter.outputs.monitoring }}
       full-infra: ${{ steps.filter.outputs.full-infra }}
       full-infra-helm: ${{ steps.filter.outputs.full-infra-helm }}
       full-infra-terraform-kubernetes: ${{ steps.filter.outputs.full-infra-terraform-kubernetes }}
@@ -74,6 +75,11 @@ jobs:
               - 'modules/reverse-proxy/kubernetes/**'
               - 'modules/reverse-proxy/README.md'
               - '.github/workflows/reverse-proxy.yml'
+
+            monitoring:
+              - 'modules/monitoring/docker/**'
+              - 'modules/monitoring/README.md'
+              - '.github/workflows/monitoring.yml'
 
             full-infra:
               - 'stacks/full-infra/docker/**'
@@ -259,10 +265,49 @@ jobs:
       - name: Helm template (prod)
         run: helm template reverse-proxy . -f values.yaml -f values-prod.yaml
 
+  validate-monitoring:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.monitoring == 'true'
+    runs-on: ubuntu-24.04-arm
+    env:
+      GRAFANA_ADMIN_PASSWORD: ci-check
+    defaults:
+      run:
+        working-directory: modules/monitoring/docker/
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Validate development Compose syntax
+        run: docker compose -f docker-compose.yml config --quiet
+
+      - name: Validate production Compose syntax
+        run: docker compose -f docker-compose.prod.yml config --quiet
+
+      - name: Validate Prometheus configuration
+        run: |
+          docker run --rm --entrypoint promtool \
+            -v "$PWD/configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
+            prom/prometheus:v3.16.0 \
+            check config /etc/prometheus/prometheus.yml
+
+      - name: Validate Blackbox Exporter configuration
+        run: |
+          docker run --rm \
+            -v "$PWD/configs/blackbox/blackbox.yml:/config/blackbox.yml:ro" \
+            prom/blackbox-exporter:v0.29.1 \
+            --config.file=/config/blackbox.yml --config.check
+
+      - name: Validate Grafana dashboard JSON
+        run: python3 -m json.tool configs/grafana/dashboards/lab-overview.json > /dev/null
+
   validate-full-infra:
     needs: detect-changes
     if: needs.detect-changes.outputs.full-infra == 'true'
     runs-on: ubuntu-24.04-arm
+    env:
+      GRAFANA_ADMIN_PASSWORD: ci-check
     defaults:
       run:
         working-directory: stacks/full-infra/docker/
@@ -363,6 +408,7 @@ jobs:
       - validate-dns-helm
       - validate-reverse-proxy-docker
       - validate-reverse-proxy-helm
+      - validate-monitoring
       - validate-full-infra
       - validate-full-infra-helm
       - validate-full-infra-terraform-kubernetes
@@ -384,6 +430,7 @@ jobs:
               "dns (helm)": "${{ needs.validate-dns-helm.result }}",
               "reverse-proxy (docker)": "${{ needs.validate-reverse-proxy-docker.result }}",
               "reverse-proxy (helm)": "${{ needs.validate-reverse-proxy-helm.result }}",
+              "monitoring": "${{ needs.validate-monitoring.result }}",
               "full-infra (docker)": "${{ needs.validate-full-infra.result }}",
               "full-infra (helm)": "${{ needs.validate-full-infra-helm.result }}",
               "full-infra (terraform kubernetes)": "${{ needs.validate-full-infra-terraform-kubernetes.result }}"
