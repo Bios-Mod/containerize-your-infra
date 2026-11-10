@@ -197,11 +197,7 @@ implementation and design decisions.
 ## Repository Structure
 
 ```text
-├── AGENTS.md
 ├── banner.png
-├── context
-│   ├── current-iteration.md
-│   ├── decisions-log.md
 ├── continuous-integration.md
 ├── CONTRIBUTING.md
 ├── environments
