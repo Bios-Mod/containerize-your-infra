@@ -306,6 +306,7 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_SERVER_DOMAIN=grafana.localhost
+      - GF_SERVER_ROOT_URL=https://grafana.localhost/
       - GF_PLUGINS_PREINSTALL_DISABLED=true
       - GF_ANALYTICS_REPORTING_ENABLED=false
       - GF_ANALYTICS_CHECK_FOR_UPDATES=false
@@ -325,11 +326,13 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 30s
     deploy:
       resources:
         limits:
           memory: 192m
+    depends_on:
+      - prometheus
     networks:
       - proxy-net
 
