@@ -7,8 +7,8 @@
 # context), Docker/EC2 Terraform static checks, umbrella chart validation (lint
 # and render for dev and prod) and EKS/registry Terraform static checks. No
 # cluster access and no AWS credentials.
-# Parameters modified from baseline: Kubernetes paths, helm and
-# terraform-kubernetes jobs added; compose job passes GRAFANA_ADMIN_PASSWORD placeholder
+# Parameters modified from baseline: Kubernetes paths, helm, terraform-kubernetes, and
+# monitoring consistency check added; compose job passes GRAFANA_ADMIN_PASSWORD placeholder
 
 name: full-infra
 
@@ -21,6 +21,7 @@ on:
       - "modules/**/docker/**"
       - "modules/**/kubernetes/**"
       - ".github/workflows/full-infra.yml"
+      - ".github/scripts/validate-monitoring.sh"
 
 jobs:
   compose:
@@ -40,6 +41,9 @@ jobs:
 
       - name: Validate full-stack Compose syntax
         run: docker compose -f docker-compose.prod.yml config
+
+      - name: Validate monitoring against the stack
+        run: ../../../.github/scripts/validate-monitoring.sh stack docker-compose.prod.yml
 
       - name: Build full stack
         run: docker compose -f docker-compose.prod.yml build

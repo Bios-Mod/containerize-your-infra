@@ -8,8 +8,8 @@
 # only when stack or module Docker paths change; the umbrella chart and the
 # EKS/registry Terraform are validated only when their own paths change. Writes
 # a per-module pass/fail summary into the PR.
-# Parameters modified from baseline: monitoring filter and job added,
-# validate-full-infra passes GRAFANA_ADMIN_PASSWORD placeholder; summary extended.
+# Parameters modified from baseline: dynamic promtool/blackbox images and monitoring
+# consistency checks added across monitoring and full-infra jobs.
 name: pull-request
 
 on:
@@ -80,11 +80,13 @@ jobs:
               - 'modules/monitoring/docker/**'
               - 'modules/monitoring/README.md'
               - '.github/workflows/monitoring.yml'
+              - '.github/scripts/validate-monitoring.sh'
 
             full-infra:
               - 'stacks/full-infra/docker/**'
               - 'modules/**/docker/**'
               - '.github/workflows/full-infra.yml'
+              - '.github/scripts/validate-monitoring.sh'
 
             full-infra-helm:
               - 'stacks/full-infra/kubernetes/helm/**'
@@ -287,20 +289,25 @@ jobs:
 
       - name: Validate Prometheus configuration
         run: |
+          PROM_IMAGE="$(docker compose -f docker-compose.prod.yml config --format json | jq -r '.services.prometheus.image')"
           docker run --rm --entrypoint promtool \
             -v "$PWD/configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
-            prom/prometheus:v3.16.0 \
+            "$PROM_IMAGE" \
             check config /etc/prometheus/prometheus.yml
 
       - name: Validate Blackbox Exporter configuration
         run: |
+          BB_IMAGE="$(docker compose -f docker-compose.prod.yml config --format json | jq -r '.services["blackbox-exporter"].image')"
           docker run --rm \
             -v "$PWD/configs/blackbox/blackbox.yml:/config/blackbox.yml:ro" \
-            prom/blackbox-exporter:v0.29.1 \
+            "$BB_IMAGE" \
             --config.file=/config/blackbox.yml --config.check
 
       - name: Validate Grafana dashboard JSON
         run: python3 -m json.tool configs/grafana/dashboards/lab-overview.json > /dev/null
+
+      - name: Validate monitoring consistency
+        run: ../../../.github/scripts/validate-monitoring.sh module
 
   validate-full-infra:
     needs: detect-changes
@@ -321,6 +328,9 @@ jobs:
 
       - name: Validate full-stack Compose syntax
         run: docker compose -f docker-compose.prod.yml config
+
+      - name: Validate monitoring against the stack
+        run: ../../../.github/scripts/validate-monitoring.sh stack docker-compose.prod.yml
 
       - name: Build full stack
         run: docker compose -f docker-compose.prod.yml build
