@@ -67,6 +67,35 @@ if [ ! -f "$ENV_FILE" ]; then
   chown ubuntu:ubuntu "$ENV_FILE"
 fi
 
+# ── SSH keys for file-transfer ────────────────────────────────────────────
+# Private keys are not versioned and are generated on first boot; the client
+# private key stays on this host and host key fingerprints change if recreated.
+FT_CFG="/home/ubuntu/containerize-your-infra/modules/file-transfer/docker/configs"
+mkdir -p "$FT_CFG/ssh" "$FT_CFG/keys"
+
+if [ -d "$FT_CFG/ssh/ssh_host_ed25519_key" ]; then
+  rm -rf "$FT_CFG/ssh/ssh_host_ed25519_key"
+fi
+if [ ! -f "$FT_CFG/ssh/ssh_host_ed25519_key" ]; then
+  ssh-keygen -q -t ed25519 -N "" -f "$FT_CFG/ssh/ssh_host_ed25519_key" </dev/null
+fi
+
+if [ -d "$FT_CFG/ssh/ssh_host_rsa_key" ]; then
+  rm -rf "$FT_CFG/ssh/ssh_host_rsa_key"
+fi
+if [ ! -f "$FT_CFG/ssh/ssh_host_rsa_key" ]; then
+  ssh-keygen -q -t rsa -b 4096 -N "" -f "$FT_CFG/ssh/ssh_host_rsa_key" </dev/null
+fi
+
+if [ -d "$FT_CFG/keys/labuser_ed25519" ]; then
+  rm -rf "$FT_CFG/keys/labuser_ed25519"
+fi
+if [ ! -f "$FT_CFG/keys/labuser_ed25519" ]; then
+  ssh-keygen -q -t ed25519 -N "" -f "$FT_CFG/keys/labuser_ed25519" </dev/null
+fi
+
+chmod 600 "$FT_CFG/ssh/ssh_host_ed25519_key" "$FT_CFG/ssh/ssh_host_rsa_key"
+
 # Ensure ubuntu owns the repository so interactive git commands work without dubious ownership errors
 chown -R ubuntu:ubuntu /home/ubuntu/containerize-your-infra
 
