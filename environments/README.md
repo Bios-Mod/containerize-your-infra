@@ -3,9 +3,9 @@
 This directory contains environment-specific setup documentation for the Docker
 and Kubernetes implementations of the lab.
 
-Each runtime keeps its own environment procedures. Docker is the current
-functional implementation for local development and EC2 production. Kubernetes
-procedures will be added when the EKS implementation is introduced.
+Each runtime keeps its own environment procedures. Docker covers local
+development and EC2 production, while Kubernetes covers logical `dev` and `prod`
+environments on a shared Amazon EKS cluster.
 
 ---
 
@@ -14,7 +14,7 @@ procedures will be added when the EKS implementation is introduced.
 | Runtime | dev | prod | Status |
 |---|---|---|---|
 | Docker | [`docker/dev/setup.md`](docker/dev/setup.md) | [`docker/prod/setup.md`](docker/prod/setup.md) | Implemented |
-| Kubernetes | Planned | Planned | Not implemented |
+| Kubernetes | [`kubernetes/dev/setup.md`](kubernetes/dev/setup.md) | [`kubernetes/prod/setup.md`](kubernetes/prod/setup.md) | Implemented |
 
 ---
 
@@ -27,9 +27,11 @@ procedures will be added when the EKS implementation is introduced.
 | Restart policy | `"no"` | `unless-stopped` |
 | Healthchecks | None | Defined per service |
 | Debug ports | Exposed | Not exposed |
-| TLS | Self-signed | Let's Encrypt (Traefik ACME) |
+| TLS | Self-signed | Self-signed (generated per host) |
 
 The Docker implementation includes a standalone development Compose file and a
-standalone production Compose file per module. The full-stack production Compose
-that aggregates all modules into one deployable unit lives in
-[`stacks/full-infra/docker/`](../stacks/full-infra/docker/full-infra-docker.md).
+standalone production Compose file per module. Full-stack deployments live in
+[`stacks/full-infra/docker/`](../stacks/full-infra/docker/full-infra-docker.md)
+for Docker Compose and
+[`stacks/full-infra/kubernetes/`](../stacks/full-infra/kubernetes/full-infra-kubernetes.md)
+for the Kubernetes Helm umbrella chart.
