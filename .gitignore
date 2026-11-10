@@ -57,3 +57,5 @@ modules/reverse-proxy/kubernetes/helm/reverse-proxy/charts/
 tmp/
 
 .vscode/
+
+modules/monitoring/docker/.env

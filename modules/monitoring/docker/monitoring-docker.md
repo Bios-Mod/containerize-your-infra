@@ -462,3 +462,341 @@ docker compose exec -T prometheus wget -qO- 'http://localhost:9090/api/v1/query?
 # → blackbox-dns dns:53 <seconds>
 # → blackbox-http https://traefik <seconds>
 ```
+
+---
+
+## Step 8 — Traefik Metrics
+
+### What was done
+
+Enable Prometheus metrics exposure on Traefik's internal `dashboard` entrypoint
+(`:8080`) in the reverse-proxy static configuration, restart `traefik` so it
+loads the updated static file, add the `traefik` scrape job (`traefik:8080/metrics`,
+tagged with `host: lab-docker`) to `configs/prometheus/prometheus.yml`, validate
+the Prometheus configuration with `promtool`, and reload `prometheus`.
+
+```yaml
+# Added to reverse-proxy static config (traefik.yml)
+metrics:
+  prometheus:
+    entryPoint: dashboard
+    addEntryPointsLabels: true
+    addRoutersLabels: true
+    addServicesLabels: true
+```
+
+> **Static configuration requires a Traefik restart:** unlike `dynamic.yml` and
+> Docker labels, Traefik reads `traefik.yml` only once at container startup.
+> Restarting `traefik` causes a brief connection interruption on ports `80` and
+> `443` while the proxy reloads its static configuration.
+
+```bash
+# 1. Validate reverse-proxy config syntax and restart Traefik from its module directory
+docker compose -f ../../reverse-proxy/docker/docker-compose.yml restart traefik
+
+# 2. Validate updated Prometheus config and restart Prometheus from modules/monitoring/docker/
+docker compose run --rm --no-deps --entrypoint promtool prometheus check config /etc/prometheus/prometheus.yml
+# → Checking /etc/prometheus/prometheus.yml
+# →  SUCCESS: /etc/prometheus/prometheus.yml is valid prometheus config file syntax
+
+docker compose restart prometheus
+```
+
+📄 [`../../reverse-proxy/docker/configs/traefik/traefik.yml`](../../reverse-proxy/docker/configs/traefik/traefik.yml) — enables `metrics.prometheus` on `entryPoint: dashboard`
+📄 [`configs/prometheus/prometheus.yml`](configs/prometheus/prometheus.yml) — adds the `traefik` scrape job (`traefik:8080/metrics`)
+
+### Why
+
+* **Reusing the internal `dashboard` entrypoint (`:8080`):** in
+  `reverse-proxy`, `traefik.yml` already binds `dashboard` to `:8080` without
+  publishing port `8080` on the host. Attaching `metrics.prometheus` to
+  `dashboard` exposes `/metrics` exclusively inside `proxy-net` — Prometheus
+  can scrape `traefik:8080/metrics` directly, while external callers cannot reach
+  raw metrics telemetry without tunneling or altering ports.
+* **EntryPoint, router, and service labels:** enabling `addEntryPointsLabels`,
+  `addRoutersLabels`, and `addServicesLabels` attaches routing context to every
+  counter and histogram (`traefik_service_requests_total`,
+  `traefik_service_request_duration_seconds_bucket`), allowing dashboards to
+  break down traffic, 5xx errors, and p95 latency per backend service (`web-server`,
+  `grafana`) rather than only aggregate totals.
+* **Plan B — rollback if Traefik fails:** this change is isolated in a single,
+  additive commit on `traefik.yml` with no route, TLS, middleware, or Compose
+  port changes. If `traefik` fails to start or becomes unhealthy after restart,
+  revert the commit (`git revert <commit-hash>`) or remove the `metrics:` block
+  from `traefik.yml`, restart `traefik` to restore ingress immediately, remove
+  the `traefik` job from `configs/prometheus/prometheus.yml`, and continue with
+  synthetic `blackbox_exporter` probes only.
+
+### Verification
+
+Wait ~15–20 seconds after restarting `prometheus`, then verify `/metrics` inside
+`proxy-net`, Prometheus target health, and that existing Traefik routers remain
+unaffected:
+
+```bash
+# Confirm /metrics responds from inside proxy-net (using the prometheus container)
+docker compose exec -T prometheus wget -qO- http://traefik:8080/metrics | grep -E '^traefik_' | head -n 5
+# → traefik_config_last_reload_success 1
+# → ...
+
+# Confirm traefik target reports health "up" alongside the existing jobs
+docker compose exec -T prometheus wget -qO- http://localhost:9090/api/v1/targets \
+  | python3 -c "import sys,json; [print(t['labels']['job'], t['labels']['host'], t['health']) for t in json.load(sys.stdin)['data']['activeTargets']]"
+# → blackbox-dns lab-docker up
+# → blackbox-http lab-docker up
+# → cadvisor lab-docker up
+# → node lab-docker up
+# → prometheus lab-docker up
+# → traefik lab-docker up
+
+# Confirm existing Traefik routers continue serving normally
+curl -sk -o /dev/null -w "%{http_code}\n" --resolve web.localhost:443:127.0.0.1 https://web.localhost/
+# → 200
+
+curl -sk -o /dev/null -w "%{http_code}\n" --resolve traefik.localhost:443:127.0.0.1 https://traefik.localhost/dashboard/
+# → 401
+```
+
+---
+
+## Step 9 — Grafana Service and Provisioning
+
+### What was done
+
+Add the `grafana` service (`grafana/grafana:13.3.0`) with file-based provisioning
+for both the Prometheus datasource and the `Lab` dashboard provider, tighten
+`blackbox-exporter` with `user: "65534:65534"`, and supply Grafana's admin
+password through an untracked `.env` file copied from `.env.example`.
+
+> **Never commit `.env` to version control:** `modules/monitoring/docker/.env` is
+> listed in `.gitignore`. Always create `.env` locally from `.env.example` and
+> replace the placeholder password (`change-me`) before starting the stack.
+
+```bash
+# Create the local .env file and set a strong admin password
+cp .env.example .env
+# Edit .env → GRAFANA_ADMIN_PASSWORD=<strong-password>
+
+# Validate the dev Compose file once .env exists
+docker compose config --quiet
+# → (no output — exit code 0 confirms valid Compose syntax and resolved env vars)
+
+# Recreate blackbox-exporter (non-root user) and start Grafana
+docker compose up -d blackbox-exporter grafana
+```
+
+📄 [`docker-compose.yml`](docker-compose.yml) — adds `grafana` and sets `user: "65534:65534"` on `blackbox-exporter`
+📄 [`.env.example`](.env.example) — template for `GRAFANA_ADMIN_PASSWORD`
+📄 [`configs/grafana/provisioning/datasources/prometheus.yml`](configs/grafana/provisioning/datasources/prometheus.yml) — registers `Prometheus` (`uid: prometheus`, `http://prometheus:9090`, default datasource)
+📄 [`configs/grafana/provisioning/dashboards/lab.yml`](configs/grafana/provisioning/dashboards/lab.yml) — configures the file dashboard provider reading `/etc/grafana/dashboards`
+
+### Why
+
+* **Why `GF_AUTH_BASIC_ENABLED=false` is required behind Traefik BasicAuth:**
+  Grafana routes through Traefik's `auth-dashboard@file` middleware before
+  requests reach port `3000`. HTTP BasicAuth works by forwarding the
+  `Authorization: Basic <base64>` header to the upstream backend. Because
+  Grafana enables HTTP BasicAuth by default, it would inspect that forwarded
+  Traefik `Authorization` header against Grafana's own user database and reject
+  requests with `401 Unauthorized` whenever Traefik credentials differ from
+  Grafana credentials. Setting `GF_AUTH_BASIC_ENABLED=false` makes Grafana
+  ignore the edge `Authorization` header while keeping its own web session
+  login (`/login`) active as a second authentication layer.
+* **Read-only root filesystem with `tmpfs` state in dev:** `grafana` runs as
+  its image user (`uid=472`) with `read_only: true`, `cap_drop: [ALL]`, and
+  `no-new-privileges:true`. Because Grafana writes its SQLite database
+  (`grafana.db`), plugin cache, and runtime temp files at startup, `/var/lib/grafana`
+  (`uid=472,gid=472`) and `/tmp` are mounted as `tmpfs`. In dev this keeps the
+  container stateless across restarts (`docker compose down` clears runtime state),
+  while `read_only: true` protects the container rootfs cleanly (no relaxation is
+  required — the built-in Prometheus datasource works without executing external
+  plugin binaries under `noexec` `tmpfs`).
+* **Fail-fast credential interpolation:**
+  `GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}`
+  stops Compose immediately if `.env` or the variable is missing, instead of
+  silently booting Grafana with a known fallback or empty password.
+* **Hardening `blackbox-exporter` to non-root `65534:65534`:** `prom/blackbox-exporter`
+  does not specify a default `USER` in its image manifest (`uid=0`), yet it only
+  opens unprivileged client sockets for HTTP and DNS probes and listens on
+  `:9115`. Running explicitly as `65534:65534` (`nobody`) removes root execution
+  without affecting probe functionality.
+* **Provisioning as code (`:ro`):** mounting `prometheus.yml` (datasource) and
+  `lab.yml` (dashboard provider) read-only ensures the Prometheus datasource UID
+  (`prometheus`) and the `Lab Overview` dashboard load automatically on cold
+  start without click-ops setup.
+
+### Verification
+
+```bash
+docker compose ps blackbox-exporter grafana
+# → NAME                IMAGE                             STATUS
+# → blackbox-exporter   prom/blackbox-exporter:v0.29.1    Up X seconds
+# → grafana             grafana/grafana:13.3.0            Up X seconds
+
+# Confirm Grafana started cleanly and provisioned the Prometheus datasource and Lab folder
+docker compose logs grafana | grep -E "HTTP Server Listen|Provisioning|HTTP Server"
+# → logger=http.server msg="HTTP Server Listen" address=[::]:3000 ...
+
+# Confirm internal Grafana health endpoint before testing ingress
+docker compose exec -T grafana wget -qO- http://localhost:3000/api/health
+# → {
+# →   "database": "ok",
+# →   "version": "13.3.0"
+# → }
+```
+
+---
+
+## Step 10 — Lab Overview Dashboard
+
+### What was done
+
+Provide the custom Grafana dashboard JSON (`configs/grafana/dashboards/lab-overview.json`,
+`uid: lab-overview`, title `Lab Overview`, `30s` auto-refresh, linked to the
+provisioned `prometheus` datasource) mounted read-only at
+`/etc/grafana/dashboards/lab-overview.json`. Because Step 9 already mounted this
+file and started `grafana`, no extra deploy command is needed unless the JSON
+was edited afterward (`docker compose restart grafana` reloads on demand, or the
+provider polls every `30s`).
+
+📄 [`configs/grafana/dashboards/lab-overview.json`](configs/grafana/dashboards/lab-overview.json) — `Lab Overview` dashboard organized into 5 rows and 14 panels:
+
+| Group | Panel | PromQL Expression |
+|---|---|---|
+| Status | `Targets Up (%)` | `sum(up) / count(up)` |
+| Status | `Blackbox Probes OK` | `min(probe_success)` |
+| Host | `Host CPU Usage (%)` | `100 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100` |
+| Host | `Host Memory Usage (%)` | `100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)` |
+| Host | `Host Root Disk Usage (%)` | `100 * (1 - node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs\|overlay\|squashfs"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs\|overlay\|squashfs"})` |
+| Host | `Host Network Traffic (RX / TX)` | `rate(node_network_receive_bytes_total{device!="lo"}[5m])` / `rate(node_network_transmit_bytes_total{device!="lo"}[5m])` |
+| Containers | `Container CPU Usage (cores)` | `sum by (name) (rate(container_cpu_usage_seconds_total{name!=""}[5m]))` |
+| Containers | `Container Memory Working Set` | `container_memory_working_set_bytes{name!=""}` |
+| Traefik | `Traefik Request Rate` | `sum by (service) (rate(traefik_service_requests_total[5m]))` |
+| Traefik | `Traefik 5xx Error Rate` | `sum by (service) (rate(traefik_service_requests_total{code=~"5.."}[5m]))` |
+| Traefik | `Traefik p95 Latency` | `histogram_quantile(0.95, sum by (le, service) (rate(traefik_service_request_duration_seconds_bucket[5m])))` |
+| Synthetic Probes | `Probe Status (probe_success)` | `probe_success` |
+| Synthetic Probes | `Probe Duration` | `probe_duration_seconds` |
+| Synthetic Probes | `TLS Certificate Expiry (days)` | `(probe_ssl_earliest_cert_expiry - time()) / 86400` |
+
+### Why
+
+* **Versioned dashboard JSON vs community IDs:** maintaining a custom JSON file
+  tailored to the exact job labels (`node`, `cadvisor`, `traefik`,
+  `blackbox-http`, `blackbox-dns`) avoids drift from external community dashboards,
+  works offline with zero external downloads, and binds every panel deterministically
+  to `uid: prometheus`.
+* **Why `stepAfter` interpolation on `probe_success`:** binary probe health (`1`
+  up, `0` down) transitions instantaneously between scrape intervals; step-line
+  rendering shows exact outage intervals without diagonal ramps.
+* **Why `Traefik` series appear only after routed requests:** Traefik initializes
+  service counter and duration bucket time series lazily when a router handles its
+  first request (`traefik_service_requests_total`). Generating at least one HTTPS
+  request (e.g., to `web.localhost` or `grafana.localhost`) populates all three
+  Traefik panels.
+
+### Verification
+
+Confirm that Prometheus holds active series for all panel groups (wait ~1–2
+minutes after startup so `rate(...[5m])` and container metrics settle):
+
+```bash
+# 1. Validate dashboard JSON syntax locally
+python3 -m json.tool configs/grafana/dashboards/lab-overview.json > /dev/null
+# → (no output — exit code 0 confirms valid JSON)
+
+# 2. Confirm Grafana did not report provisioning errors
+docker compose logs grafana | grep -iE "failed to load|provision.*error"
+# → (no output — dashboard provisioned cleanly)
+
+# 3. Verify underlying Prometheus queries return non-empty results
+docker compose exec -T prometheus wget -qO- 'http://localhost:9090/api/v1/query?query=sum(up)/count(up)' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['result'][0]['value'][1])"
+# → 1
+
+docker compose exec -T prometheus wget -qO- 'http://localhost:9090/api/v1/query?query=min(probe_success)' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['result'][0]['value'][1])"
+# → 1
+```
+
+---
+
+## Step 11 — Exposure Through Traefik
+
+### What was done
+
+Verify HTTPS ingress to Grafana through Traefik (`https://grafana.localhost`),
+confirming that HTTP redirects to HTTPS (`301`), unauthenticated HTTPS requests
+are blocked by Traefik's `auth-dashboard@file` middleware (`401`), and the
+provisioned datasource and `Lab Overview` dashboard are reachable through Grafana
+once authenticated.
+
+📄 [`docker-compose.yml`](docker-compose.yml) — Traefik labels on `grafana` (`Host(\`grafana.localhost\`)`, `websecure`, `tls=true`, `auth-dashboard@file`, port `3000`)
+
+### Why
+
+* **Why Grafana publishes no host ports (`ports:` omitted):** publishing port
+  `3000` directly on the Docker host would expose plain HTTP Grafana traffic,
+  bypassing Traefik's TLS termination and `auth-dashboard@file` BasicAuth
+  middleware. Attaching Grafana exclusively to `proxy-net` lets Traefik resolve
+  `grafana:3000` internally while exposing only port `443` through the reverse
+  proxy.
+* **Two-stage authentication in `curl` checks:** because Step 9 disabled
+  Grafana HTTP BasicAuth (`GF_AUTH_BASIC_ENABLED=false`), passing `-u admin:...`
+  satisfies Traefik's `auth-dashboard@file` middleware (`401` → `200` on public
+  or health endpoints like `/api/health`), whereas authenticated Grafana API
+  endpoints (`/api/search`) require a Grafana session cookie obtained via
+  `POST /login`. Using `-k` skips CA chain verification for Traefik's
+  self-signed lab certificate (`CN=*.localhost`), and `--resolve` maps
+  `grafana.localhost` to `127.0.0.1` without editing `/etc/hosts`.
+
+### Verification
+
+```bash
+# 1. Confirm Traefik discovered the grafana router
+curl -sk --resolve traefik.localhost:443:127.0.0.1 \
+  -u 'admin:<traefik-password>' \
+  https://traefik.localhost/api/http/routers \
+  | python3 -m json.tool | grep '"grafana@docker"'
+# → "grafana@docker"
+
+# 2. HTTP redirects cleanly to HTTPS
+curl -s -o /dev/null -w "%{http_code}\n" --resolve grafana.localhost:80:127.0.0.1 http://grafana.localhost/
+# → 301
+
+# 3. HTTPS without Traefik BasicAuth credentials is rejected (401)
+curl -sk -o /dev/null -w "%{http_code}\n" --resolve grafana.localhost:443:127.0.0.1 https://grafana.localhost/api/health
+# → 401
+
+# 4. HTTPS with Traefik BasicAuth credentials reaches /api/health
+curl -sk --resolve grafana.localhost:443:127.0.0.1 \
+  -u 'admin:<traefik-password>' \
+  https://grafana.localhost/api/health
+# → {
+# →   "database": "ok",
+# →   "version": "13.3.0"
+# → }
+
+# 5. Sign in to Grafana via /login (cookie jar) and verify the Lab Overview dashboard and Prometheus datasource
+curl -sk --resolve grafana.localhost:443:127.0.0.1 \
+  -u 'admin:<traefik-password>' \
+  -c /tmp/grafana.cookies \
+  -H 'Content-Type: application/json' \
+  -d '{"user":"admin","password":"<grafana-password>"}' \
+  https://grafana.localhost/login
+# → {"message":"Logged in"}
+
+curl -sk --resolve grafana.localhost:443:127.0.0.1 \
+  -u 'admin:<traefik-password>' \
+  -b /tmp/grafana.cookies \
+  'https://grafana.localhost/api/search?query=Lab%20Overview' \
+  | python3 -c "import sys,json; print([(d['uid'], d['title'], d['folderTitle']) for d in json.load(sys.stdin)])"
+# → [('lab-overview', 'Lab Overview', 'Lab')]
+
+curl -sk --resolve grafana.localhost:443:127.0.0.1 \
+  -u 'admin:<traefik-password>' \
+  -b /tmp/grafana.cookies \
+  https://grafana.localhost/api/datasources/uid/prometheus/health
+# → {"status":"OK","message":"Successfully queried the Prometheus API."}
+
+rm -f /tmp/grafana.cookies
+```

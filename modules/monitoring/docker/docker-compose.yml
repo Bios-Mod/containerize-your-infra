@@ -1,10 +1,10 @@
 # Deploy to:   modules/monitoring/docker/docker-compose.yml
 # Apply:       docker compose up -d
 # Module:      monitoring
-# Requires:    configs/prometheus/prometheus.yml, configs/blackbox/blackbox.yml, external Docker network proxy-net (created by reverse-proxy)
+# Requires:    .env, configs/prometheus/prometheus.yml, configs/blackbox/blackbox.yml, configs/grafana/, external Docker network proxy-net (created by reverse-proxy)
 #
-# Pull-based observability base (dev): Prometheus, node_exporter, cAdvisor, and blackbox_exporter on proxy-net with no exposed ports.
-# Parameters modified from baseline: external proxy-net, 15d retention, hardening flags, privileged cAdvisor
+# Pull-based observability stack (dev): Prometheus, node_exporter, cAdvisor, blackbox_exporter, and Grafana on proxy-net.
+# Parameters modified from baseline: external proxy-net, 15d retention, hardening flags, privileged cAdvisor, Traefik labels for Grafana
 
 services:
   node-exporter:
@@ -67,6 +67,7 @@ services:
   blackbox-exporter:
     image: prom/blackbox-exporter:v0.29.1
     container_name: blackbox-exporter
+    user: "65534:65534"
     restart: "no"
     read_only: true
     cap_drop:
@@ -77,6 +78,40 @@ services:
       - ./configs/blackbox/blackbox.yml:/config/blackbox.yml:ro
     command:
       - "--config.file=/config/blackbox.yml"
+    networks:
+      - proxy-net
+
+  grafana:
+    image: grafana/grafana:13.3.0
+    container_name: grafana
+    restart: "no"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /var/lib/grafana:uid=472,gid=472
+      - /tmp
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_BASIC_ENABLED=false
+      - GF_SERVER_DOMAIN=grafana.localhost
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+    volumes:
+      - ./configs/grafana/provisioning/datasources/prometheus.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+      - ./configs/grafana/provisioning/dashboards/lab.yml:/etc/grafana/provisioning/dashboards/lab.yml:ro
+      - ./configs/grafana/dashboards/lab-overview.json:/etc/grafana/dashboards/lab-overview.json:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.localhost`)"
+      - "traefik.http.routers.grafana.entrypoints=websecure"
+      - "traefik.http.routers.grafana.tls=true"
+      - "traefik.http.routers.grafana.middlewares=auth-dashboard@file"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
     networks:
       - proxy-net
 

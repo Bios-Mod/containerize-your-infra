@@ -3,8 +3,8 @@
 # Module:      monitoring
 # Requires:    none
 #
-# Prometheus scrape configuration — self-monitoring, host (node_exporter), container (cAdvisor), and blackbox probe jobs.
-# Parameters modified from baseline: scrape_interval 15s; adds prometheus, node, cadvisor, blackbox-http, and blackbox-dns jobs
+# Prometheus scrape configuration — self-monitoring, host (node_exporter), container (cAdvisor), blackbox probes, and Traefik metrics.
+# Parameters modified from baseline: scrape_interval 15s; adds prometheus, node, cadvisor, blackbox-http, blackbox-dns, and traefik jobs
 
 global:
   scrape_interval: 15s
@@ -60,3 +60,10 @@ scrape_configs:
         target_label: instance
       - target_label: __address__
         replacement: blackbox-exporter:9115
+
+  - job_name: traefik
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["traefik:8080"]
+        labels:
+          host: lab-docker
