@@ -364,7 +364,7 @@ what changes is the operational layer.
 | Client public key mount | Bind mount | Bind mount `:ro` |
 | Upload data | Bind mount | Named volume |
 | Restart policy | `"no"` (default) | `unless-stopped` |
-| Healthcheck | None | TCP probe on port 22 |
+| Healthcheck | None | `pidof sshd` process check |
 
 Host keys cannot be mounted `:ro` — the entrypoint enforces `chmod` on them at
 startup and OpenSSH rejects keys with wrong permissions. Upload data moves to a
