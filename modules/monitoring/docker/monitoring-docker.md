@@ -426,16 +426,20 @@ Deploy `docker-compose.prod.yml` on a Linux host (EC2 or VM), switching to
 without `tmpfs`), `wget` healthchecks on all five containers, `deploy.resources.limits.memory`
 (`prometheus: 256m`, `grafana: 192m`, `cadvisor: 128m`, `node-exporter: 64m`, `blackbox-exporter: 64m`), and `--storage.tsdb.retention.size=1GB`.
 
-> **Prerequisites on the production host:** ensure `reverse-proxy` and the core
-> service stack are running on `proxy-net` (with Traefik metrics enabled), run
-> `git pull` to fetch the `monitoring` module, create `.env` from `.env.example`,
-> and stop dev (`docker compose down`) if active on the same host.
+> **Prerequisites on the production host:** ensure `reverse-proxy` and core
+> services are running on `proxy-net` (`dns` and `file-transfer` run as `amd64`
+> via `qemu-user-static` on Graviton `arm64`, slowing initial boot), pull updates,
+> ensure `modules/monitoring/docker/.env` exists (for the unified EC2 stack, see
+> [`Updating a deployed host`](../../../stacks/full-infra/docker/full-infra-docker.md#updating-a-deployed-host)),
+> and stop dev (`sudo docker compose down`) if active.
 
 ```bash
-docker compose -f docker-compose.prod.yml config --quiet
+cd ~/containerize-your-infra/modules/monitoring/docker
+ls -l .env  # must exist (copied from .env.example)
+sudo docker compose -f docker-compose.prod.yml config --quiet
 # → (no output — exit code 0)
 
-docker compose -f docker-compose.prod.yml up -d
+sudo docker compose -f docker-compose.prod.yml up -d
 ```
 
 📄 [`docker-compose.prod.yml`](docker-compose.prod.yml) — production Compose with named volumes, healthchecks, memory limits, and `1GB` TSDB cap
@@ -466,7 +470,7 @@ docker compose -f docker-compose.prod.yml up -d
 
 ```bash
 # Confirm all 5 services report healthy and named volumes exist
-docker compose -f docker-compose.prod.yml ps
+sudo docker compose -f docker-compose.prod.yml ps
 # → NAME                IMAGE                             STATUS
 # → blackbox-exporter   prom/blackbox-exporter:v0.29.1    Up X seconds (healthy)
 # → cadvisor            ghcr.io/google/cadvisor:v0.60.6   Up X seconds (healthy)
@@ -474,21 +478,21 @@ docker compose -f docker-compose.prod.yml ps
 # → node-exporter       prom/node-exporter:v1.12.1        Up X seconds (healthy)
 # → prometheus          prom/prometheus:v3.16.0           Up X seconds (healthy)
 
-docker volume ls | grep -E 'prometheus-data|grafana-data'
+sudo docker volume ls | grep -E 'prometheus-data|grafana-data'
 # → local     <project>_grafana-data
 # → local     <project>_prometheus-data
 
 # Confirm TSDB and Grafana state persist across down/up (never pass -v)
-docker compose -f docker-compose.prod.yml down
-docker compose -f docker-compose.prod.yml up -d
+sudo docker compose -f docker-compose.prod.yml down
+sudo docker compose -f docker-compose.prod.yml up -d
 sleep 20
 
-docker compose -f docker-compose.prod.yml exec -T prometheus wget -qO- \
+sudo docker compose -f docker-compose.prod.yml exec -T prometheus wget -qO- \
   'http://localhost:9090/api/v1/query?query=count_over_time(up{job="prometheus"}[15m])' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['result'][0]['value'][1])"
 # → <sample-count-preserved-across-restart>
 
-# Verify Grafana HTTPS ingress and provisioned dashboard on the host (prefix sudo if user is not in the docker group)
+# Verify Grafana HTTPS ingress and provisioned dashboard on the host
 set -a && source .env && set +a
 
 curl -sk --resolve grafana.localhost:443:127.0.0.1 -u "admin:${GRAFANA_ADMIN_PASSWORD}" https://grafana.localhost/api/health

@@ -212,8 +212,10 @@ Docker Engine is running, the repo is cloned, `stacks/full-infra/docker/.env`
 was generated, and all nine containers are up and healthy.
 
 > **Wait 2–3 minutes after `apply` completes** before SSHing in. `cloud-init`
-> runs `user_data.sh` asynchronously after the instance reaches running state.
-> The instance is reachable before the script finishes.
+> runs `user_data.sh` asynchronously after the instance reaches running state, and
+> `dns` and `file-transfer` (`amd64` images) start more slowly under
+> `qemu-user-static` emulation on Graviton (`arm64`). The instance is reachable
+> before the script finishes.
 
 ```bash
 ssh -i ~/.ssh/containerize-lab ubuntu@$(terraform output -raw instance_public_ip)
@@ -302,6 +304,17 @@ certificate valid for `localhost` under
 owned by `ubuntu`). The `404` on `https://localhost/dashboard/` is expected —
 the dashboard router rule matches `traefik.localhost`, not the bare IP or
 `localhost`.
+
+### Troubleshooting
+
+| Symptom | Check | Resolution |
+|---|---|---|
+| Container restarting with `exec format error` | Check `qemu-user-static` binfmt handler: `ls /proc/sys/fs/binfmt_misc \| grep -i qemu` | Install `sudo apt-get update && sudo apt-get install -y qemu-user-static`, then restart the affected container |
+| `permission denied` on Docker socket | Session opened before `usermod -aG docker ubuntu` took effect | Prefix host commands with `sudo docker ...` or start a new SSH session |
+| `git` fails with `dubious ownership` | Repository directory owned by `root` from `cloud-init` | Run `sudo chown -R ubuntu:ubuntu ~/containerize-your-infra` |
+| Container restarts or OOM kills | Check RAM/swap (`free -m`) and kernel OOM log (`sudo dmesg \| grep -i oom`) | Confirm the 1 GiB `/swapfile` is active (`swapon --show`) or resize the instance |
+| Traefik target `down` / missing `/metrics` | Static config loaded before Traefik metrics update or stale state | Reload static config with `sudo docker restart traefik` |
+| Need Grafana admin password | Generated automatically with `chmod 600` during first boot | Read `.env` with `sudo cat stacks/full-infra/docker/.env` |
 
 ---
 

@@ -237,13 +237,16 @@ sudo docker volume ls | grep -E "file-transfer-data|dns-cache|prometheus-data|gr
 # → local   prometheus-data
 ```
 
-### Updating an existing host
+### Updating a deployed host
 
-To pull repository updates and recreate changed services on an already-provisioned host:
+To pull repository updates and apply changes on an already-provisioned host:
 
 ```bash
 cd ~/containerize-your-infra && git pull
 sudo docker compose -f stacks/full-infra/docker/docker-compose.prod.yml up -d
+# Bind-mounted static files (such as traefik.yml) do not trigger container recreation
+sudo docker restart traefik
+sudo docker compose -f stacks/full-infra/docker/docker-compose.prod.yml ps
 ```
 
 > Read `GRAFANA_ADMIN_PASSWORD` from `~/containerize-your-infra/` with
