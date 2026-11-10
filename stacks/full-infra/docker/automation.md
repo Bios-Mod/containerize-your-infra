@@ -17,8 +17,8 @@ run on the host. Docker Compose does not know how the host was provisioned.
 Changing one does not require touching the other.
 
 > **Prerequisites:** AWS CLI configured with a profile that has EC2 and IAM
-> permissions. Terraform >= 1.6 installed locally. An existing key pair name
-> in the target region, or use the key pair resource in this plan.
+> permissions. Terraform >= 1.15.6 installed locally. An SSH key pair to
+> populate `public_key` in `terraform.tfvars`.
 
 ---
 
@@ -45,7 +45,7 @@ Terraform downloads the AWS provider plugin and sets up the local state backend.
 Run this once from `automation/terraform/` before any other command.
 
 ```bash
-cd stacks/full-infra/automation/terraform
+cd stacks/full-infra/docker/automation/terraform
 cp main.tf.example main.tf
 cp outputs.tf.example outputs.tf
 terraform init
@@ -86,12 +86,13 @@ cp terraform.tfvars.example terraform.tfvars
 Edit `terraform.tfvars`:
 
 ```hcl
-aws_region       = "eu-west-1"
-instance_type    = "t4g.micro"
-ami_id           = "ami-xxxxxxxxxxxxxxxxx"   # Ubuntu 24.04 LTS ARM64 in your region
-key_name         = "your-existing-key-pair"
-allowed_ssh_cidr = "YOUR_PUBLIC_IP/32"
-repo_url         = "https://github.com/Bios-Mod/containerize-your-infra.git"
+aws_region          = "eu-west-1"
+aws_profile         = "default"
+ec2_instance_type   = "t4g.micro"
+vpc_name            = "containerize-vpc"
+security_group_name = "containerize-sg"
+key_pair_name       = "containerize-key"
+public_key          = "ssh-ed25519 AAAA...  containerize-lab"
 ```
 
 📄 [`automation/terraform/terraform.tfvars.example`](automation/terraform/terraform.tfvars.example)
@@ -101,8 +102,7 @@ repo_url         = "https://github.com/Bios-Mod/containerize-your-infra.git"
 Separating variables from resource definitions is a non-negotiable Terraform
 practice. `terraform.tfvars` is listed in `.gitignore` — it never enters version
 control. The `.example` file documents every required input without exposing
-real values. `allowed_ssh_cidr` restricts port 22 to your IP only — the security
-group does not open SSH to `0.0.0.0/0` under any circumstance.
+real values.
 
 > **Generate an SSH key pair for this lab before filling in the vars file:**
 >
@@ -110,11 +110,12 @@ group does not open SSH to `0.0.0.0/0` under any circumstance.
 > ssh-keygen -t ed25519 -f ~/.ssh/containerize-lab -C "containerize-lab"
 > ```
 > The public key (`~/.ssh/containerize-lab.pub`) goes into `terraform.tfvars`
-> as the value of `public_key`. The private key stays on your machine and is
-> used to SSH into the instance after `apply`.
+> as the value of `public_key`. The private key (`~/.ssh/containerize-lab`)
+> stays on your machine and is used to SSH into the instance after `apply`.
 >
-> **`terraform.tfvars` is gitignored.** Never commit it. It may contain your
-> AWS region and IP. The `.example` file is what lives in the repo.
+> **`terraform.tfvars` is gitignored.** Never commit it. It contains your AWS
+> profile, region, and SSH key configuration. The `.example` file is what lives
+> in the repo.
 >
 > **Port 22 is open to `0.0.0.0/0`** — the lab operator has a dynamic IP
 > (ISP DHCP lease), making a fixed CIDR impractical. In a production environment
@@ -179,7 +180,8 @@ terraform apply containerize.tfplan
 `user_data` script is injected into the instance at launch by the AWS API as
 instance metadata. The script runs as root on first boot via `cloud-init`,
 installs Docker Engine from the official Docker APT repository, clones this
-repo, and runs `docker compose -f stacks/full-infra/docker/docker-compose.prod.yml up -d`.
+repo, generates the Traefik TLS certificates and `stacks/full-infra/docker/.env`,
+and runs `docker compose -f stacks/full-infra/docker/docker-compose.prod.yml up -d`.
 
 This is the handoff point between layers: Terraform's job ends when the
 instance is running. Docker Compose's job begins inside that instance.
@@ -206,28 +208,31 @@ terraform output
 ### What was done
 
 SSH into the instance and confirm that `user_data.sh` completed successfully:
-Docker Engine is running, the repo is cloned, and all four containers are up
-and healthy.
+Docker Engine is running, the repo is cloned, `stacks/full-infra/docker/.env`
+was generated, and all nine containers are up and healthy.
 
 > **Wait 2–3 minutes after `apply` completes** before SSHing in. `cloud-init`
 > runs `user_data.sh` asynchronously after the instance reaches running state.
 > The instance is reachable before the script finishes.
 
 ```bash
-ssh -i ~/.ssh/your-key.pem ubuntu@$(terraform output -raw instance_public_ip)
+ssh -i ~/.ssh/containerize-lab ubuntu@$(terraform output -raw instance_public_ip)
 ```
 
 Once inside the instance:
 
 ```bash
-# cloud-init log — confirm user_data ran without errors
-sudo cat /var/log/cloud-init-output.log | tail -30
+# user_data log — confirm Docker install, TLS/.env setup, and Compose completed without errors
+sudo tail -30 /var/log/user-data.log
 # → ...
-# → Successfully started all containers
 
-# Repo was cloned
+# Repo was cloned (ignored local files such as .terraform* or .env are created locally)
 ls ~/containerize-your-infra/
-# → AGENTS.md  README.md  modules/  stacks/  ...
+# → CONTRIBUTING.md  README.md  continuous-integration.md  environments/  modules/  stacks/
+
+# Generated Grafana password (.env created with chmod 600, owned by ubuntu)
+cat ~/containerize-your-infra/stacks/full-infra/docker/.env
+# → GRAFANA_ADMIN_PASSWORD=<generated-password>
 
 # ── Docker ────────────────────────────────────────────────────────────────
 docker --version
@@ -240,10 +245,15 @@ sudo systemctl status docker --no-pager
 # ── Containers ────────────────────────────────────────────────────────────
 cd /home/ubuntu/containerize-your-infra
 sudo docker compose -f stacks/full-infra/docker/docker-compose.prod.yml ps
-# → traefik         Up X minutes (healthy)
-# → web-server      Up X minutes (healthy)
-# → file-transfer   Up X minutes (healthy)
-# → dns             Up X minutes (healthy)
+# → blackbox-exporter   Up X minutes (healthy)
+# → cadvisor            Up X minutes (healthy)
+# → dns                 Up X minutes (healthy)
+# → file-transfer       Up X minutes (healthy)
+# → grafana             Up X minutes (healthy)
+# → node-exporter       Up X minutes (healthy)
+# → prometheus          Up X minutes (healthy)
+# → traefik             Up X minutes (healthy)
+# → web-server          Up X minutes (healthy)
 
 # ── Web server — HTTP redirect ─────────────────────────────────────────────
 curl -s -o /dev/null -w "%{http_code}\n" http://$(curl -s ifconfig.me)
@@ -253,7 +263,7 @@ curl -s -o /dev/null -w "%{http_code}\n" http://$(curl -s ifconfig.me)
 curl -sk -o /dev/null -w "%{http_code}\n" \
   --resolve traefik.localhost:443:127.0.0.1 \
   https://traefik.localhost/dashboard/
-# → 401  (auth challenge — Traefik está vivo)
+# → 401  (auth challenge — Traefik is up)
 
 # ── DNS ────────────────────────────────────────────────────────────────────
 dig @127.0.0.1 dns.lab.local +short
@@ -262,22 +272,31 @@ dig @127.0.0.1 dns.lab.local +short
 # ── File transfer ──────────────────────────────────────────────────────────
 nc -zv 127.0.0.1 2222
 # → Connection to 127.0.0.1 2222 port [tcp/*] succeeded!
+
+# ── Grafana (via Traefik HTTPS) ────────────────────────────────────────────
+set -a && source stacks/full-infra/docker/.env && set +a
+curl -sk --resolve grafana.localhost:443:127.0.0.1 \
+  -u "admin:${GRAFANA_ADMIN_PASSWORD}" \
+  https://grafana.localhost/api/health
+# → {"database":"ok","version":"13.3.0"}
 ```
 
 ### Why
 
 `user_data.sh` execution is not confirmed by Terraform — Terraform considers
-the instance ready as soon as the AWS API reports it running. The only source
-of truth for what happened during first boot is `/var/log/cloud-init-output.log`.
-Checking it here closes the loop between infrastructure provisioning and service
-deployment.
+the instance ready as soon as the AWS API reports it running. Because `user_data.sh`
+redirects all output to `/var/log/user-data.log`, inspecting that log closes the
+loop between infrastructure provisioning and service deployment.
 
-**TLS certificates** are not committed to the repository — they are generated
-automatically by `user_data.sh` after cloning the repo and before the stack
-starts. `openssl` generates a self-signed certificate valid for `localhost`.
-Traefik loads it at startup from `modules/reverse-proxy/docker/configs/traefik/certs/`.
-The `404` on `https://localhost/dashboard/` is expected — the dashboard router
-rule matches `traefik.localhost`, not the bare IP or `localhost`.
+**TLS certificates and Grafana credentials** are not committed to the
+repository — they are generated automatically by `user_data.sh` after cloning
+the repo and before the stack starts. `openssl` generates a self-signed
+certificate valid for `localhost` under
+`modules/reverse-proxy/docker/configs/traefik/certs/`, and writes a random
+`GRAFANA_ADMIN_PASSWORD` into `stacks/full-infra/docker/.env` (`chmod 600`,
+owned by `ubuntu`). The `404` on `https://localhost/dashboard/` is expected —
+the dashboard router rule matches `traefik.localhost`, not the bare IP or
+`localhost`.
 
 ---
 
@@ -313,7 +332,7 @@ removed: security group, key pair, volume. No orphaned resources.
 
 ```bash
 terraform destroy
-# → Destroy complete! Resources: 4 destroyed.
+# → Destroy complete! Resources: N destroyed.
 
 # Confirm no resources remain
 terraform show
