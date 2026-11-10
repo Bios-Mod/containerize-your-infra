@@ -4,7 +4,7 @@
 # Requires:    none
 #
 # Traefik static configuration — loaded once at startup.
-# Parameters modified from baseline: entrypoints, dashboard, Docker provider, TLS redirect.
+# Parameters modified from baseline: entrypoints, dashboard, Docker provider, TLS redirect, Prometheus metrics on the dashboard entrypoint.
 
 global:
   checkNewVersion: false
@@ -42,3 +42,10 @@ providers:
 
 ping:
   entryPoint: "dashboard"
+
+metrics:
+  prometheus:
+    entryPoint: dashboard
+    addEntryPointsLabels: true
+    addRoutersLabels: true
+    addServicesLabels: true
