@@ -219,6 +219,11 @@ was generated, and all nine containers are up and healthy.
 ssh -i ~/.ssh/containerize-lab ubuntu@$(terraform output -raw instance_public_ip)
 ```
 
+> **`docker` group permissions:** `user_data.sh` adds `ubuntu` to the `docker`
+> group (`usermod -aG docker ubuntu`), taking effect on a new SSH login. Host
+> commands below use `sudo docker ...` so verification also works inside an
+> earlier SSH session or on a pre-existing host.
+
 Once inside the instance:
 
 ```bash
@@ -230,12 +235,12 @@ sudo tail -30 /var/log/user-data.log
 ls ~/containerize-your-infra/
 # → CONTRIBUTING.md  README.md  continuous-integration.md  environments/  modules/  stacks/
 
-# Generated Grafana password (.env created with chmod 600, owned by ubuntu)
+# Generated Grafana password (.env created with chmod 600, owned by ubuntu; use sudo cat stacks/full-infra/docker/.env if root-owned)
 cat ~/containerize-your-infra/stacks/full-infra/docker/.env
 # → GRAFANA_ADMIN_PASSWORD=<generated-password>
 
 # ── Docker ────────────────────────────────────────────────────────────────
-docker --version
+sudo docker --version
 # → Docker version 27.x.x
 
 # Docker Engine is running

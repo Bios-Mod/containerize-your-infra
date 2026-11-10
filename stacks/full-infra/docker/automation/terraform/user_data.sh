@@ -23,6 +23,9 @@ apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 systemctl enable docker
 systemctl start docker
 
+# Allow ubuntu to run Docker without sudo on future SSH sessions (compose up below runs as root)
+usermod -aG docker ubuntu
+
 # ── Free port 53 (systemd-resolved occupies it by default on Ubuntu 24.04) ──
 mkdir -p /etc/systemd/resolved.conf.d/
 cat > /etc/systemd/resolved.conf.d/no-stub.conf << 'RESOLVED'

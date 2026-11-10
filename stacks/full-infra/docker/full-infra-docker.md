@@ -144,19 +144,27 @@ Named volumes for persistent data (`file-transfer-data`, `dns-cache`,
 Before running locally, copy `.env.example` to `.env` and set a strong
 `GRAFANA_ADMIN_PASSWORD`. On EC2 hosts provisioned with Terraform, `user_data.sh`
 generates `stacks/full-infra/docker/.env` automatically on first boot (`chmod 600`,
-owned by `ubuntu`). Inspect it via SSH when needed with
-`cat ~/containerize-your-infra/stacks/full-infra/docker/.env`.
+owned by `ubuntu`). Inspect it via SSH with
+`cat ~/containerize-your-infra/stacks/full-infra/docker/.env` (or
+`sudo cat stacks/full-infra/docker/.env` from `~/containerize-your-infra/` if created
+with `root` ownership).
 
 `web-server` is built from its `Dockerfile` on first `up` — Docker Compose
 builds the image automatically if it doesn't exist locally, or you can force
 a rebuild with `--build`.
+
+> **`sudo docker` on Linux/EC2 hosts:** `user_data.sh` adds `ubuntu` to the
+> `docker` group (`usermod -aG docker ubuntu`), taking effect on a new SSH
+> session. Host commands below use `sudo docker ...` so they also work before
+> re-logging in or on existing hosts (omit `sudo` on macOS or once the `docker`
+> group is active).
 
 ```bash
 cd stacks/full-infra/docker/
 cp .env.example .env
 # Edit .env → GRAFANA_ADMIN_PASSWORD=<strong-password>
 
-docker compose -f docker-compose.prod.yml up -d --build
+sudo docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 📄 [`docker-compose.prod.yml`](docker-compose.prod.yml)
@@ -197,7 +205,7 @@ Dockerfile and its `COPY` paths resolve relative to that directory, not to
 
 ```bash
 # All nine containers are running
-docker compose -f docker-compose.prod.yml ps
+sudo docker compose -f docker-compose.prod.yml ps
 # → NAME                STATUS
 # → blackbox-exporter   Up X seconds (healthy)
 # → cadvisor            Up X seconds (healthy)
@@ -210,7 +218,7 @@ docker compose -f docker-compose.prod.yml ps
 # → web-server          Up X seconds (healthy)
 
 # All containers are on proxy-net
-docker network inspect proxy-net --format '{{ range .Containers }}{{ .Name }} {{ .IPv4Address }}{{ "\n" }}{{ end }}'
+sudo docker network inspect proxy-net --format '{{ range .Containers }}{{ .Name }} {{ .IPv4Address }}{{ "\n" }}{{ end }}'
 # → blackbox-exporter 172.21.0.X/24
 # → cadvisor          172.21.0.X/24
 # → dns               172.21.0.10/24
@@ -222,12 +230,25 @@ docker network inspect proxy-net --format '{{ range .Containers }}{{ .Name }} {{
 # → web-server        172.21.0.X/24
 
 # Named volumes were created
-docker volume ls | grep -E "file-transfer-data|dns-cache|prometheus-data|grafana-data"
+sudo docker volume ls | grep -E "file-transfer-data|dns-cache|prometheus-data|grafana-data"
 # → local   dns-cache
 # → local   file-transfer-data
 # → local   grafana-data
 # → local   prometheus-data
 ```
+
+### Updating an existing host
+
+To pull repository updates and recreate changed services on an already-provisioned host:
+
+```bash
+cd ~/containerize-your-infra && git pull
+sudo docker compose -f stacks/full-infra/docker/docker-compose.prod.yml up -d
+```
+
+> Read `GRAFANA_ADMIN_PASSWORD` from `~/containerize-your-infra/` with
+> `sudo cat stacks/full-infra/docker/.env` if `.env` is owned by `root`
+> (`chmod 600`), or `cat stacks/full-infra/docker/.env` when `ubuntu` owns it.
 
 ---
 
@@ -293,7 +314,7 @@ ssh -p 2222 -o StrictHostKeyChecking=no labuser@127.0.0.1 \
 # ── Monitoring ────────────────────────────────────────────────────────────
 
 # All 6 Prometheus targets are up
-docker compose -f docker-compose.prod.yml exec -T prometheus wget -qO- http://localhost:9090/api/v1/targets \
+sudo docker compose -f docker-compose.prod.yml exec -T prometheus wget -qO- http://localhost:9090/api/v1/targets \
   | python3 -c "import sys,json; [print(t['labels']['job'], t['health']) for t in json.load(sys.stdin)['data']['activeTargets']]"
 # → blackbox-dns up
 # → blackbox-http up
@@ -303,7 +324,7 @@ docker compose -f docker-compose.prod.yml exec -T prometheus wget -qO- http://lo
 # → traefik up
 
 # Synthetic HTTPS and DNS probes succeed
-docker compose -f docker-compose.prod.yml exec -T prometheus wget -qO- 'http://localhost:9090/api/v1/query?query=probe_success' \
+sudo docker compose -f docker-compose.prod.yml exec -T prometheus wget -qO- 'http://localhost:9090/api/v1/query?query=probe_success' \
   | python3 -c "import sys,json; [print(r['metric']['job'], r['metric']['instance'], r['value'][1]) for r in json.load(sys.stdin)['data']['result']]"
 # → blackbox-dns dns:53 1
 # → blackbox-http https://traefik 1
@@ -341,20 +362,20 @@ cache, Prometheus TSDB series, and Grafana state survive a full `docker compose 
 
 ```bash
 # Bring the stack down (named volumes are preserved without -v , if you want to destroy everything use -v flag)
-docker compose -f docker-compose.prod.yml down
+sudo docker compose -f docker-compose.prod.yml down
 
 # Confirm volumes survived
-docker volume ls | grep -E "file-transfer-data|dns-cache|prometheus-data|grafana-data"
+sudo docker volume ls | grep -E "file-transfer-data|dns-cache|prometheus-data|grafana-data"
 # → local   dns-cache
 # → local   file-transfer-data
 # → local   grafana-data
 # → local   prometheus-data
 
 # Bring the stack back up
-docker compose -f docker-compose.prod.yml up -d
+sudo docker compose -f docker-compose.prod.yml up -d
 
 # All services healthy after cold start
-docker compose -f docker-compose.prod.yml ps
+sudo docker compose -f docker-compose.prod.yml ps
 # → blackbox-exporter   Up X seconds (healthy)
 # → cadvisor            Up X seconds (healthy)
 # → dns                 Up X seconds (healthy)
@@ -368,7 +389,7 @@ docker compose -f docker-compose.prod.yml ps
 # Restart policy survives daemon restart
 sudo systemctl restart docker
 sleep 5
-docker ps --format "table {{.Names}}\t{{.Status}}"
+sudo docker ps --format "table {{.Names}}\t{{.Status}}"
 # → blackbox-exporter   Up X seconds
 # → cadvisor            Up X seconds
 # → dns                 Up X seconds
