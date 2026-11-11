@@ -12,7 +12,7 @@ Open a GitHub Issue describing:
 
 - Which module, environment, stack, workflow, or config file is affected
 - What the current behaviour is and what you expected
-- Your deployment context (`docker/dev` or `docker/prod`) and architecture (ARM64 or x86_64)
+- Your deployment context (`docker/dev`, `docker/prod`, `kubernetes/dev`, or `kubernetes/prod`) and architecture (ARM64 or x86_64)
 
 **Suggesting improvements**
 Open a GitHub Issue before submitting a PR for significant changes — a brief
@@ -23,20 +23,22 @@ discussion avoids duplicated effort and keeps the lab coherent.
 1. Fork the repository and create a branch from `main`
 2. Keep changes focused — one fix or addition per PR
 3. Follow the existing conventions:
-   - Config files in `modules/<module>/docker/configs/` include a standard header block:
-     ```
-     # Deploy to:   <target path inside the container or on the host>
-     # Apply:       <docker compose up / docker build / cp>
+   - Config, Compose, Helm, and Terraform files include a standard header block:
+     ```text
+     # Deploy to:   <target environment, path, or platform>
+     # Apply:       <docker compose up / docker build / helm install / terraform apply / cp>
      # Module:      <module name>
-     # Requires:    <prior module if applicable> / none
+     # Requires:    <prior module or prerequisite if applicable> / none
      #
-     # Parameters modified from baseline:  <param → new value> / none
      # <one-line description>
+     # Parameters modified from baseline:  <param → new value> / none
      ```
    - Doc sections follow the `What was done / Why / Verification` structure
    - Commands are copy-pasteable and tested
-4. If adding a new service module, open an Issue first to align on scope
    - Inline comments explain *why*, not just *what*
+4. If adding a new service module, open an Issue first to align on scope
+
+Pull requests targeting `main` run the [`pull-request.yml`](.github/workflows/pull-request.yml) CI workflow and post a per-module validation summary on the PR.
 
 ---
 
@@ -47,7 +49,7 @@ discussion avoids duplicated effort and keeps the lab coherent.
 - Additional verification commands for existing steps
 - Architecture-specific notes (ARM64 / x86_64 differences)
 - Alternative image choices with documented tradeoffs
-- Corrections to Docker Compose, Terraform, CI, and documentation paths caused by the runtime layout refactor
+- Corrections to Docker Compose, Helm, Terraform, CI, and documentation paths or references
 
 ## What is out of scope
 
