@@ -69,3 +69,34 @@ probes:
   dnsService: dns-dns
   dnsPort: 53
   zone: lab.local
+
+grafana:
+  replicaCount: 1
+
+  image:
+    repository: grafana/grafana
+    tag: 13.3.0
+    pullPolicy: IfNotPresent
+
+  hostname: grafana.local
+  tlsSecretName: reverse-proxy-tls
+  # Created manually with kubectl in the target namespace (key: admin-password).
+  adminSecretName: monitoring-grafana-admin
+
+  ingressRoute:
+    enabled: true
+
+  service:
+    type: ClusterIP
+    port: 3000
+
+  # Disk-backed emptyDir cap for Grafana SQLite DB and plugin state (no EBS CSI).
+  dataSizeLimit: 256Mi
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi

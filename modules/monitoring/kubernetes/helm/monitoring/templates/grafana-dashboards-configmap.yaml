@@ -1,0 +1,33 @@
+# Deploy to:   EKS (full-infra-dev / full-infra-prod)
+# Apply:       helm install / helm upgrade
+# Module:      monitoring
+# Requires:    dashboards/lab-overview-k8s.json
+#
+# Grafana dashboard provider and JSON definition ConfigMap — loads lab-overview-k8s.json
+# from /etc/grafana/dashboards as read-only provisioning code.
+# Parameters modified from baseline: none
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-grafana-dashboards
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: monitoring
+data:
+  lab.yml: |
+    apiVersion: 1
+
+    providers:
+      - name: lab
+        orgId: 1
+        folder: Lab
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        allowUiUpdates: false
+        options:
+          path: /etc/grafana/dashboards
+  lab-overview-k8s.json: |
+{{- .Files.Get "dashboards/lab-overview-k8s.json" | nindent 4 }}

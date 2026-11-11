@@ -26,3 +26,13 @@ blackbox:
     limits:
       cpu: 50m
       memory: 48Mi
+
+grafana:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi

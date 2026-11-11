@@ -1,0 +1,30 @@
+# Deploy to:   EKS (full-infra-dev / full-infra-prod)
+# Apply:       helm install / helm upgrade
+# Module:      monitoring
+# Requires:    reverse-proxy-tls Secret and Traefik CRD IngressRoute in namespace
+#
+# Conditional Traefik IngressRoute exposing Grafana over HTTPS (websecure) on the
+# configured hostname using the shared self-signed TLS Secret.
+# Parameters modified from baseline: none
+
+{{- if .Values.grafana.ingressRoute.enabled }}
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ .Release.Name }}-grafana
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: monitoring
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`{{ .Values.grafana.hostname }}`)
+      kind: Rule
+      services:
+        - name: {{ .Release.Name }}-grafana
+          port: {{ .Values.grafana.service.port }}
+  tls:
+    secretName: {{ .Values.grafana.tlsSecretName }}
+{{- end }}
