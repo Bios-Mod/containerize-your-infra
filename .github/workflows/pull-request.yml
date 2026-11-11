@@ -9,7 +9,8 @@
 # EKS/registry Terraform are validated only when their own paths change. Writes
 # a per-module pass/fail summary into the PR.
 # Parameters modified from baseline: dynamic promtool/blackbox images, inline monitoring
-# consistency checks, and full-infra-terraform job added.
+# consistency checks, monitoring Helm validation, full-infra umbrella checks, and
+# Kubernetes Terraform ignored-file materialization added.
 name: pull-request
 
 on:
@@ -27,7 +28,8 @@ jobs:
       dns-helm: ${{ steps.filter.outputs.dns-helm }}
       reverse-proxy-docker: ${{ steps.filter.outputs.reverse-proxy-docker }}
       reverse-proxy-helm: ${{ steps.filter.outputs.reverse-proxy-helm }}
-      monitoring: ${{ steps.filter.outputs.monitoring }}
+      monitoring-docker: ${{ steps.filter.outputs.monitoring-docker }}
+      monitoring-helm: ${{ steps.filter.outputs.monitoring-helm }}
       full-infra: ${{ steps.filter.outputs.full-infra }}
       full-infra-terraform: ${{ steps.filter.outputs.full-infra-terraform }}
       full-infra-helm: ${{ steps.filter.outputs.full-infra-helm }}
@@ -77,8 +79,13 @@ jobs:
               - 'modules/reverse-proxy/README.md'
               - '.github/workflows/reverse-proxy.yml'
 
-            monitoring:
+            monitoring-docker:
               - 'modules/monitoring/docker/**'
+              - 'modules/monitoring/README.md'
+              - '.github/workflows/monitoring.yml'
+
+            monitoring-helm:
+              - 'modules/monitoring/kubernetes/**'
               - 'modules/monitoring/README.md'
               - '.github/workflows/monitoring.yml'
 
@@ -270,9 +277,9 @@ jobs:
       - name: Helm template (prod)
         run: helm template reverse-proxy . -f values.yaml -f values-prod.yaml
 
-  validate-monitoring:
+  validate-monitoring-docker:
     needs: detect-changes
-    if: needs.detect-changes.outputs.monitoring == 'true'
+    if: needs.detect-changes.outputs.monitoring-docker == 'true'
     runs-on: ubuntu-24.04-arm
     env:
       GRAFANA_ADMIN_PASSWORD: ci-check
@@ -415,6 +422,116 @@ jobs:
                 ;;
             esac
           done <<< "$bind_sources"
+
+  validate-monitoring-helm:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.monitoring-helm == 'true'
+    runs-on: ubuntu-24.04-arm
+    defaults:
+      run:
+        working-directory: modules/monitoring/kubernetes/helm/monitoring/
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+
+      - name: Lint chart (dev values)
+        run: helm lint . -f values.yaml -f values-dev.yaml
+
+      - name: Lint chart (prod values)
+        run: helm lint . -f values.yaml -f values-prod.yaml
+
+      - name: Render templates (dev)
+        run: helm template monitoring . -n full-infra-dev -f values.yaml -f values-dev.yaml > /dev/null
+
+      - name: Render templates (prod)
+        run: helm template monitoring . -n full-infra-prod -f values.yaml -f values-prod.yaml > /tmp/monitoring-prod.yaml
+
+      - name: Verify prod render includes all Deployments
+        run: |
+          deploys="$(yq -o=json '.' < /tmp/monitoring-prod.yaml | jq -sr '[.[] | select(type == "object" and .kind == "Deployment") | .metadata.name] | .[]')"
+          for name in monitoring-prometheus monitoring-blackbox monitoring-grafana; do
+            if ! grep -Fqx "$name" <<< "$deploys"; then
+              echo "::error::Missing Deployment '$name' in prod render" >&2
+              exit 1
+            fi
+          done
+
+      - name: Validate rendered Prometheus configuration
+        run: |
+          yq -o=json '.' < /tmp/monitoring-prod.yaml \
+            | jq -sr '[.[] | select(type == "object" and .kind == "ConfigMap" and .metadata.name == "monitoring-prometheus") | .data["prometheus.yml"]][0] // empty' \
+            > /tmp/prometheus.yml
+          if [ ! -s /tmp/prometheus.yml ]; then
+            echo "::error::Missing prometheus.yml in rendered monitoring-prometheus ConfigMap" >&2
+            exit 1
+          fi
+          PROM_IMAGE="$(yq -o=json '.' < values.yaml | jq -er '"\(.prometheus.image.repository):\(.prometheus.image.tag)"')"
+          docker run --rm --entrypoint promtool \
+            -v /tmp/prometheus.yml:/etc/prometheus/prometheus.yml:ro \
+            "$PROM_IMAGE" \
+            check config --syntax-only /etc/prometheus/prometheus.yml
+
+      - name: Validate rendered Blackbox Exporter configuration
+        run: |
+          yq -o=json '.' < /tmp/monitoring-prod.yaml \
+            | jq -sr '[.[] | select(type == "object" and .kind == "ConfigMap" and .metadata.name == "monitoring-blackbox") | .data["blackbox.yml"]][0] // empty' \
+            > /tmp/blackbox.yml
+          if [ ! -s /tmp/blackbox.yml ]; then
+            echo "::error::Missing blackbox.yml in rendered monitoring-blackbox ConfigMap" >&2
+            exit 1
+          fi
+          BB_IMAGE="$(yq -o=json '.' < values.yaml | jq -er '"\(.blackbox.image.repository):\(.blackbox.image.tag)"')"
+          docker run --rm \
+            -v /tmp/blackbox.yml:/config/blackbox.yml:ro \
+            "$BB_IMAGE" \
+            --config.file=/config/blackbox.yml --config.check
+
+      - name: Validate Grafana dashboard JSON
+        run: python3 -m json.tool dashboards/lab-overview-k8s.json > /dev/null
+
+      - name: Validate Grafana dashboard metadata and datasource
+        run: |
+          dash="dashboards/lab-overview-k8s.json"
+          dash_uid="$(jq -r '.uid // ""' "$dash")"
+          dash_title="$(jq -r '.title // ""' "$dash")"
+          if [ -z "${dash_uid//[[:space:]]/}" ]; then
+            echo "::error::Dashboard $dash has an empty or missing uid" >&2
+            exit 1
+          fi
+          if [ -z "${dash_title//[[:space:]]/}" ]; then
+            echo "::error::Dashboard $dash has an empty or missing title" >&2
+            exit 1
+          fi
+          ds_yaml="$(yq -o=json '.' < /tmp/monitoring-prod.yaml | jq -sr '[.[] | select(type == "object" and .kind == "ConfigMap" and .metadata.name == "monitoring-grafana-datasource") | .data["prometheus.yml"]][0] // empty')"
+          if [ -z "$ds_yaml" ]; then
+            echo "::error::Missing prometheus.yml in rendered monitoring-grafana-datasource ConfigMap" >&2
+            exit 1
+          fi
+          provisioned_uids="$(yq -o=json '.' <<< "$ds_yaml" | jq -r '.datasources[]?.uid // empty')"
+          if ! grep -Fqx "prometheus" <<< "$provisioned_uids"; then
+            echo "::error::Provisioned datasource uid 'prometheus' is missing in monitoring-grafana-datasource ConfigMap" >&2
+            exit 1
+          fi
+          referenced_uids="$(jq -r '
+            [.. | objects | select(has("datasource")) | .datasource | select(type == "object") | .uid? // empty]
+            | unique
+            | .[]
+          ' "$dash")"
+          if [ -z "$referenced_uids" ]; then
+            echo "::error::Dashboard $dash references no datasource UIDs" >&2
+            exit 1
+          fi
+          while IFS= read -r ref_uid; do
+            [ -z "$ref_uid" ] && continue
+            if ! grep -Fqx "$ref_uid" <<< "$provisioned_uids"; then
+              echo "::error::Dashboard $dash references datasource uid '$ref_uid', which is not provisioned in monitoring-grafana-datasource ConfigMap" >&2
+              exit 1
+            fi
+          done <<< "$referenced_uids"
 
   validate-full-infra:
     needs: detect-changes
@@ -571,10 +688,17 @@ jobs:
             helm template full-infra . -n full-infra-$ENV -f values.yaml -f values-$ENV.yaml \
               --set web-server.image.repository=registry.example.com/web-server \
               --set dns.image.repository=registry.example.com/dns > /tmp/full-infra-$ENV.yaml
-            if grep -qE 'web-server-web-server|dns-dns' /tmp/full-infra-$ENV.yaml; then
-              echo "::error::Stale module Service name in the $ENV render"
+            if grep -qE 'web-server-web-server|dns-dns|reverse-proxy-traefik' /tmp/full-infra-$ENV.yaml; then
+              echo "::error::Stale module Service name in the $ENV render" >&2
               exit 1
             fi
+            deploys="$(yq -o=json '.' < /tmp/full-infra-$ENV.yaml | jq -sr '[.[] | select(type == "object" and .kind == "Deployment") | .metadata.name] | .[]')"
+            for name in full-infra-prometheus full-infra-blackbox full-infra-grafana; do
+              if ! grep -Fqx "$name" <<< "$deploys"; then
+                echo "::error::Missing Deployment '$name' in the $ENV umbrella render" >&2
+                exit 1
+              fi
+            done
           done
 
   validate-full-infra-terraform-kubernetes:
@@ -594,6 +718,15 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+
+      - name: Materialize ignored files from examples
+        run: |
+          # main.tf and/or outputs.tf are gitignored; without copying existing .tf.example files, terraform validate skips them
+          for f in main.tf outputs.tf; do
+            if [ -f "$f.example" ] && [ ! -e "$f" ]; then
+              cp -n "$f.example" "$f"
+            fi
+          done
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v4
@@ -616,7 +749,8 @@ jobs:
       - validate-dns-helm
       - validate-reverse-proxy-docker
       - validate-reverse-proxy-helm
-      - validate-monitoring
+      - validate-monitoring-docker
+      - validate-monitoring-helm
       - validate-full-infra
       - validate-full-infra-terraform
       - validate-full-infra-helm
@@ -639,7 +773,8 @@ jobs:
               "dns (helm)": "${{ needs.validate-dns-helm.result }}",
               "reverse-proxy (docker)": "${{ needs.validate-reverse-proxy-docker.result }}",
               "reverse-proxy (helm)": "${{ needs.validate-reverse-proxy-helm.result }}",
-              "monitoring": "${{ needs.validate-monitoring.result }}",
+              "monitoring (docker)": "${{ needs.validate-monitoring-docker.result }}",
+              "monitoring (helm)": "${{ needs.validate-monitoring-helm.result }}",
               "full-infra (docker)": "${{ needs.validate-full-infra.result }}",
               "full-infra (terraform docker)": "${{ needs.validate-full-infra-terraform.result }}",
               "full-infra (helm)": "${{ needs.validate-full-infra-helm.result }}",

@@ -4,11 +4,11 @@
 # Requires:    none
 #
 # Four independent jobs: Compose stack validation (config + build in stack
-# context), Docker/EC2 Terraform static checks, umbrella chart validation (lint
-# and render for dev and prod) and EKS/registry Terraform static checks. No
-# cluster access and no AWS credentials.
+# context), Docker/EC2 Terraform static checks, umbrella chart validation (lint,
+# render for dev and prod, stale name and monitoring Deployment checks) and
+# EKS/registry Terraform static checks. No cluster access and no AWS credentials.
 # Parameters modified from baseline: Kubernetes paths, helm, terraform-kubernetes, inline
-# monitoring consistency, ignored-file materialization, and user_data.sh checks added
+# monitoring consistency, ignored-file materialization (Docker + Kubernetes), and user_data.sh checks added
 
 name: full-infra
 
@@ -172,10 +172,17 @@ jobs:
             helm template full-infra . -n full-infra-$ENV -f values.yaml -f values-$ENV.yaml \
               --set web-server.image.repository=registry.example.com/web-server \
               --set dns.image.repository=registry.example.com/dns > /tmp/full-infra-$ENV.yaml
-            if grep -qE 'web-server-web-server|dns-dns' /tmp/full-infra-$ENV.yaml; then
-              echo "::error::Stale module Service name in the $ENV render"
+            if grep -qE 'web-server-web-server|dns-dns|reverse-proxy-traefik' /tmp/full-infra-$ENV.yaml; then
+              echo "::error::Stale module Service name in the $ENV render" >&2
               exit 1
             fi
+            deploys="$(yq -o=json '.' < /tmp/full-infra-$ENV.yaml | jq -sr '[.[] | select(type == "object" and .kind == "Deployment") | .metadata.name] | .[]')"
+            for name in full-infra-prometheus full-infra-blackbox full-infra-grafana; do
+              if ! grep -Fqx "$name" <<< "$deploys"; then
+                echo "::error::Missing Deployment '$name' in the $ENV umbrella render" >&2
+                exit 1
+              fi
+            done
           done
 
   terraform-kubernetes:
@@ -193,6 +200,15 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+
+      - name: Materialize ignored files from examples
+        run: |
+          # main.tf and/or outputs.tf are gitignored; without copying existing .tf.example files, terraform validate skips them
+          for f in main.tf outputs.tf; do
+            if [ -f "$f.example" ] && [ ! -e "$f" ]; then
+              cp -n "$f.example" "$f"
+            fi
+          done
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v4
