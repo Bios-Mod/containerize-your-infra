@@ -105,12 +105,14 @@ helm template monitoring modules/monitoring/kubernetes/helm/monitoring -n full-i
 ## Step 4 — Grafana
 
 ### What was done
-Create Secret `monitoring-grafana-admin` (`admin-password`), finish `<release>-grafana` startup (`ClusterIP` `:3000`, `UID/GID/fsGroup 472`, `emptyDir` `256Mi`, datasource + `Lab Overview (Kubernetes)` ConfigMaps, conditional `IngressRoute`), and expose `:3000` via `port-forward`.
+Create Secret `monitoring-grafana-admin` (`admin-password`), finish `<release>-grafana` startup (`ClusterIP` `:3000`, `UID/GID/fsGroup 472`, `emptyDir` `256Mi`, datasource + `Lab Overview (Kubernetes)` ConfigMaps, conditional `IngressRoute`), and forward `:3000` locally.
+
+> **Changing `monitoring-grafana-admin` later:** Grafana applies the `admin` password only when creating its SQLite DB; after updating the Secret later, run `kubectl rollout restart deploy/<release>-grafana` and open a new `port-forward` (old forwards stay attached to the previous Pod).
 
 ```bash
 kubectl create secret generic monitoring-grafana-admin -n full-infra-dev --from-literal=admin-password="$(openssl rand -base64 18)"
 kubectl rollout status deploy/monitoring-grafana -n full-infra-dev
-kubectl get secret monitoring-grafana-admin -n full-infra-dev -o jsonpath='{.data.admin-password}' | base64 -d; echo
+PW=$(kubectl get secret monitoring-grafana-admin -n full-infra-dev -o jsonpath='{.data.admin-password}' | base64 -d); echo "$PW"
 kubectl port-forward -n full-infra-dev svc/monitoring-grafana 3000:3000 & GRAF_PID=$!
 ```
 
@@ -125,20 +127,30 @@ kubectl port-forward -n full-infra-dev svc/monitoring-grafana 3000:3000 & GRAF_P
 ## Step 5 — End-to-end verification
 
 ### What was done
-Confirm all five Prometheus scrape jobs, both blackbox probes (`probe_success == 1`), and provisioned Grafana datasource/dashboard state in `full-infra-dev`.
+Confirm all five Prometheus scrape jobs, both blackbox probes (`probe_success == 1`), Grafana health/datasource checks, and the Traefik IngressRoute in `full-infra-dev`.
 
 ### Verification
 
 ```bash
-PASS=$(kubectl get secret monitoring-grafana-admin -n full-infra-dev -o jsonpath='{.data.admin-password}' | base64 -d)
+PW=${PW:-$(kubectl get secret monitoring-grafana-admin -n full-infra-dev -o jsonpath='{.data.admin-password}' | base64 -d)}
 kubectl port-forward -n full-infra-dev svc/monitoring-prometheus 9090:9090 & PROM_PID=$!
+kubectl port-forward -n full-infra-dev $(kubectl get svc -n full-infra-dev -l app.kubernetes.io/name=traefik -o name) 8443:443 & TRF_PID=$!
 sleep 3
 curl -s http://localhost:9090/api/v1/targets | python3 -c "import sys,json; [print(t['labels']['job'], t['health']) for t in sorted(json.load(sys.stdin)['data']['activeTargets'], key=lambda x: x['labels']['job'])]"
 # → blackbox-dns up, blackbox-http up, kubelet-cadvisor up (x2), prometheus up, traefik up
 curl -s 'http://localhost:9090/api/v1/query?query=probe_success' | python3 -c "import sys,json; [print(r['metric']['job'], r['value'][1]) for r in json.load(sys.stdin)['data']['result']]"
 # → blackbox-http 1, blackbox-dns 1
-curl -s -u "admin:$PASS" http://localhost:3000/api/datasources/uid/prometheus | grep -o '"name":"Prometheus"'         # → "name":"Prometheus"
-curl -s -u "admin:$PASS" http://localhost:3000/api/dashboards/uid/lab-overview-k8s | grep -o '"title":"Lab Overview (Kubernetes)"'
-# Open http://localhost:3000 (Lab → Lab Overview (Kubernetes)) and confirm panels render data
-kill $PROM_PID $GRAF_PID && unset PASS
+curl -s http://localhost:3000/api/health                                              # → "database": "ok"
+curl -s -u "admin:$PW" http://localhost:3000/api/datasources/uid/prometheus/health    # → "status":"OK"
+curl -k -I -H 'Host: grafana.local' https://localhost:8443/login                      # → HTTP/2 200
+# Open http://localhost:3000/d/lab-overview-k8s and confirm panels render data
+kill $PROM_PID $GRAF_PID $TRF_PID && unset PW
 ```
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Grafana Pod in `CreateContainerConfigError` | Missing `monitoring-grafana-admin` Secret | Create the Secret in the release namespace (Step 4) |
+| Grafana Pod `OOMKilled` (`Exit Code 137`) | Memory limit hit without node swap (see Environment) | Keep the `512Mi` container limit in `values*.yaml` |
+| HTTP `401` after updating `monitoring-grafana-admin` | Grafana writes `admin` password only on DB init | Run `kubectl rollout restart deploy/<release>-grafana` and a new `port-forward`, or `kubectl exec deploy/<release>-grafana -- grafana cli admin reset-admin-password '<new>'` |

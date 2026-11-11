@@ -42,6 +42,9 @@ Everything else this stack needs lives in the registry or inside the cluster and
 Set the session variables once. Every later step reuses them; if you open a new shell, run this block again.
 
 ```bash
+export AWS_PROFILE=multi-lab-admin
+export AWS_REGION=eu-west-1
+
 REGION=eu-west-1
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text) || return 1
 REGISTRY=$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
@@ -172,7 +175,11 @@ for NS in full-infra-dev full-infra-prod; do
   kubectl create secret generic reverse-proxy-dashboard-auth --from-literal=users="$HASH" -n $NS
 done
 unset HASH
+```
 
+> **Changing `monitoring-grafana-admin` later:** Grafana sets the `admin` password only when creating its database; after updating the Secret later, run `kubectl rollout restart deploy/full-infra-grafana -n <ns>` and open a new `port-forward` (the previous one stays attached to the old Pod).
+
+```bash
 # Grafana admin password (distinct random password per namespace)
 for NS in full-infra-dev full-infra-prod; do
   kubectl create secret generic monitoring-grafana-admin --from-literal=admin-password="$(openssl rand -base64 18)" -n $NS
@@ -188,7 +195,7 @@ done
 
 These objects are cluster state, not chart content, and must exist before `helm install`. A missing Secret does not fail at install: Traefik reads TLS material from a `kubernetes.io/tls` Secret, the Middleware references the auth Secret by name, and Grafana mounts `monitoring-grafana-admin` (`admin-password`), so failures show up at request or Pod-startup time. Traefik requires the BasicAuth key to be named `users`. None of the three Secret names depends on the release name, so all stay unchanged under the umbrella.
 
-The quota and the LimitRange are applied first so that the production deployment is tested under the real constraints. The LimitRange caps every container at 500m CPU and 512Mi memory; the quota caps the namespace at 1500m CPU, 3Gi memory (requests), 3000m CPU, 6Gi memory (limits) and 20 Pods. Containers with no `resources` block — Traefik's, by default — receive the LimitRange defaults (requests 100m / 128Mi, limits 250m / 256Mi). Adding monitoring (`160m` CPU / `336Mi` memory requests, `550m` / `688Mi` limits across 3 Pods) to `web-server`, `dns` and Traefik (`500m` / `576Mi` requests, `1450m` / `1152Mi` limits across 5 Pods) brings `full-infra-prod` to `660m` CPU / `912Mi` memory requests and `2000m` CPU / `1840Mi` memory limits across 8 Pods, inside the quota.
+The quota and the LimitRange are applied first so that the production deployment is tested under the real constraints. The LimitRange caps every container at 500m CPU and 512Mi memory; the quota caps the namespace at 1500m CPU, 3Gi memory (requests), 3000m CPU, 6Gi memory (limits) and 20 Pods. Containers with no `resources` block — Traefik's, by default — receive the LimitRange defaults (requests 100m / 128Mi, limits 250m / 256Mi). Adding monitoring (`160m` CPU / `400Mi` memory requests, `550m` / `944Mi` limits across 3 Pods) to `web-server`, `dns` and Traefik (`500m` / `576Mi` requests, `1450m` / `1152Mi` limits across 5 Pods) brings `full-infra-prod` to `660m` CPU / `976Mi` memory requests and `2000m` CPU / `2096Mi` memory limits across 8 Pods, inside the quota.
 
 The self-signed certificate is a lab-appropriate pattern, not a production one: production would use cert-manager against a real CA. It is issued for `web.local` because routing is by Host header, so it never has to be reissued when the ELB name changes.
 
@@ -367,11 +374,14 @@ curl -k -I -H 'Host: web.local' https://localhost:8443/
 curl -k -I -H 'Host: web.local' https://localhost:8443/dashboard/
 # → HTTP/2 401
 
-curl -k -I -u admin -H 'Host: web.local' https://localhost:8443/dashboard/
+curl -k -s -o /dev/null -w "%{http_code}\n" -u admin -H 'Host: web.local' https://localhost:8443/dashboard/
 # → HTTP/2 200 (prompts for the password)
 
 curl -k -I https://localhost:8443/
 # → HTTP/2 404   (no Host header matches no router)
+
+curl -k -I -H 'Host: grafana.local' https://localhost:8443/login
+# → HTTP/2 200
 
 kubectl exec -n full-infra-dev dns-client -- dig @full-infra-dns lab.local SOA +short
 # → full-infra-dns.full-infra-dev.svc.cluster.local. admin.lab.local. 2026093001 3600 1800 604800 86400
@@ -394,25 +404,31 @@ kill %1
 
 kubectl delete pod dns-client -n full-infra-dev
 
-# Monitoring: targets up, probes OK, Grafana UI/API, and DNS probe fault injection
-GRAF_PASS=$(kubectl get secret monitoring-grafana-admin -n full-infra-dev -o jsonpath='{.data.admin-password}' | base64 -d)
+# Monitoring: targets up, probes OK, Grafana health/UI, and DNS probe fault injection
+PW=$(kubectl get secret monitoring-grafana-admin -n full-infra-dev -o jsonpath='{.data.admin-password}' | base64 -d)
 kubectl port-forward -n full-infra-dev svc/full-infra-prometheus 9090:9090 & PROM_PID=$!
 kubectl port-forward -n full-infra-dev svc/full-infra-grafana 3000:3000 & GRAF_PID=$!
 sleep 3
 curl -s http://localhost:9090/api/v1/targets | python3 -c "import sys,json; [print(t['labels']['job'], t['health']) for t in sorted(json.load(sys.stdin)['data']['activeTargets'], key=lambda x: x['labels']['job'])]"
 # → blackbox-dns up, blackbox-http up, kubelet-cadvisor up (x2), prometheus up, traefik up
+
 curl -s 'http://localhost:9090/api/v1/query?query=probe_success' | python3 -c "import sys,json; [print(r['metric']['job'], r['value'][1]) for r in json.load(sys.stdin)['data']['result']]"
 # → blackbox-http 1, blackbox-dns 1
-curl -s -u "admin:$GRAF_PASS" http://localhost:3000/api/dashboards/uid/lab-overview-k8s | grep -o '"uid":"lab-overview-k8s"'
-# → "uid":"lab-overview-k8s"   (open http://localhost:3000 to inspect panels)
+
+curl -s http://localhost:3000/api/health                                              # → "database": "ok"
+curl -s -u "admin:$PW" http://localhost:3000/api/datasources/uid/prometheus/health    # → "status":"OK"
+# Open http://localhost:3000/d/lab-overview-k8s and confirm panels render data
 
 kubectl scale deploy/full-infra-dns -n full-infra-dev --replicas=0
 sleep 20
-curl -s 'http://localhost:9090/api/v1/query?query=probe_success{job="blackbox-dns"}' | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['result'][0]['value'][1])"
+curl -sG 'http://localhost:9090/api/v1/query' \
+  --data-urlencode 'query=probe_success{job="blackbox-dns"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['result'][0]['value'][1])"
 # → 0
+
 kubectl scale deploy/full-infra-dns -n full-infra-dev --replicas=1
 kubectl rollout status deploy/full-infra-dns -n full-infra-dev
-kill $PROM_PID $GRAF_PID && unset GRAF_PASS
+kill $PROM_PID $GRAF_PID && unset PW
 ```
 
 ---
@@ -472,7 +488,7 @@ kubectl get pods -n full-infra-prod -o wide
 # → full-infra-web-server 2/2, full-infra-dns 2/2, traefik 1/1, full-infra-prometheus 1/1, full-infra-blackbox 1/1, full-infra-grafana 1/1 Running
 
 kubectl describe resourcequota full-infra-prod-quota -n full-infra-prod
-# → Used: 660m/912Mi requests, 2000m/1840Mi limits, 8 pods within Hard
+# → Used: 660m/976Mi requests, 2000m/2096Mi limits, 8 pods within Hard
 
 curl -k -I --resolve web.local:443:$ELB_IP https://web.local/
 # → HTTP/2 200
@@ -480,20 +496,22 @@ curl -k -I --resolve web.local:443:$ELB_IP https://web.local/
 curl -k -I --resolve web.local:443:$ELB_IP -u admin https://web.local/dashboard/
 # → HTTP/2 200
 
-GRAF_PASS=$(kubectl get secret monitoring-grafana-admin -n full-infra-prod -o jsonpath='{.data.admin-password}' | base64 -d)
 curl -k -I --resolve grafana.local:443:$ELB_IP https://grafana.local/login
 # → HTTP/2 200
-curl -sk -u "admin:$GRAF_PASS" --resolve grafana.local:443:$ELB_IP https://grafana.local/api/dashboards/uid/lab-overview-k8s | grep -o '"uid":"lab-overview-k8s"'
-# → "uid":"lab-overview-k8s"
-unset GRAF_PASS
 
+# Read the prod-namespace Secret (distinct password from full-infra-dev)
+PW=$(kubectl get secret monitoring-grafana-admin -n full-infra-prod -o jsonpath='{.data.admin-password}' | base64 -d)
 kubectl port-forward -n full-infra-prod svc/full-infra-prometheus 9090:9090 & PROM_PID=$!
+kubectl port-forward -n full-infra-prod svc/full-infra-grafana 3000:3000 & GRAF_PID=$!
 sleep 3
 curl -s http://localhost:9090/api/v1/targets | python3 -c "import sys,json; [print(t['labels']['job'], t['health']) for t in sorted(json.load(sys.stdin)['data']['activeTargets'], key=lambda x: x['labels']['job'])]"
 # → blackbox-dns up, blackbox-http up, kubelet-cadvisor up (x2), prometheus up, traefik up
 curl -s 'http://localhost:9090/api/v1/query?query=probe_success' | python3 -c "import sys,json; [print(r['metric']['job'], r['value'][1]) for r in json.load(sys.stdin)['data']['result']]"
 # → blackbox-http 1, blackbox-dns 1
-kill $PROM_PID
+curl -s http://localhost:3000/api/health                                              # → "database": "ok"
+curl -s -u "admin:$PW" http://localhost:3000/api/datasources/uid/prometheus/health    # → "status":"OK"
+# Open http://localhost:3000/d/lab-overview-k8s and confirm panels render data
+kill $PROM_PID $GRAF_PID && unset PW
 
 kubectl get endpoints full-infra-web-server full-infra-dns -n full-infra-prod
 # → two Pod IPs each
