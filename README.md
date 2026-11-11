@@ -30,7 +30,7 @@ decision explained inline.
 
 Built and tested on Ubuntu 24.04 LTS and macOS on Apple Silicon. Docker Engine
 runs on Linux hosts, including EC2 t4g.micro, while OrbStack provides the local
-macOS development runtime. Kubernetes runs on arm64 Managed Node Groups on
+macOS development runtime. Kubernetes runs on an arm64 Managed Node Group on
 Amazon EKS. All configurations are architecture-agnostic unless noted.
 
 This lab deploys the same services as
@@ -103,7 +103,7 @@ infrastructure stack. Kubernetes does not replace the Docker implementation.
 | Platform | Amazon EKS, shared cluster | Amazon EKS, shared cluster |
 | Namespace | `full-infra-dev` | `full-infra-prod` |
 | Packaging | Helm | Helm |
-| Exposure | Traefik `ClusterIP`, `kubectl port-forward` | Traefik `LoadBalancer`, AWS Classic ELB |
+| Exposure | Traefik `LoadBalancer` (Classic ELB), validated via `kubectl port-forward` | Traefik `LoadBalancer`, AWS Classic ELB |
 | Replicas | 1 | 2 (web-server, dns) |
 | Guardrails | None | `ResourceQuota`, `LimitRange`, read-only RBAC |
 
@@ -177,8 +177,9 @@ for the full implementations.
 
 Every Docker and Kubernetes module, the full stack of each runtime and the
 Terraform of each runtime are validated automatically through GitHub Actions.
-Each module triggers its own workflow scoped by a runtime-specific `paths`
-filter, so a change in one module does not run unrelated checks.
+Each module triggers its own workflow on pushes to `main` using a module-scoped
+`paths` filter, so a change in one module does not run unrelated module checks
+(pull requests targeting `main` filter per runtime in `pull-request.yml`).
 
 | Workflow | Scope | Validates |
 |---|---|---|
@@ -188,7 +189,7 @@ filter, so a change in one module does not run unrelated checks.
 | `reverse-proxy.yml` | `modules/reverse-proxy/docker/**`, `modules/reverse-proxy/kubernetes/**` | Compose configuration and image references (Docker); chart dependency resolution, lint and template render (Kubernetes) |
 | `monitoring.yml` | `modules/monitoring/docker/**`, `modules/monitoring/kubernetes/**` | Compose configuration, image pulls, `promtool`, `blackbox_exporter`, Grafana dashboard JSON, and inline config consistency checks (Docker); chart lint/render, rendered `promtool`/`blackbox_exporter` checks, Grafana dashboard JSON, and datasource UID consistency (Kubernetes) |
 | `full-infra.yml` | Docker and Kubernetes stack paths, module Docker and Kubernetes paths | Full-stack Compose config/build, monitoring-stack consistency, and Docker/EC2 Terraform (with `.example` files and `user_data.sh` checks); umbrella chart lint/render (including stale-name and monitoring checks), EKS and registry Terraform (with existing `.tf.example` files materialized) |
-| `pull-request.yml` | Changed Docker, Helm and Terraform paths | Path-scoped module, monitoring consistency, full-stack, and Docker/EKS Terraform validation, both runtimes |
+| `pull-request.yml` | Changed Docker, Helm and Terraform paths | Path-scoped module, monitoring consistency, full-stack, and Docker, EKS, and registry Terraform validation on pull requests to `main`, both runtimes |
 
 Modules with both runtimes validate them in the same workflow file, as independent
 jobs. CI does not deploy anything and never uses AWS credentials.
@@ -251,6 +252,7 @@ implementation and design decisions.
 │   │   │   │   └── prometheus
 │   │   │   ├── docker-compose.prod.yml
 │   │   │   ├── docker-compose.yml
+│   │   │   ├── .env.example
 │   │   │   └── monitoring-docker.md
 │   │   ├── kubernetes
 │   │   │   ├── helm
