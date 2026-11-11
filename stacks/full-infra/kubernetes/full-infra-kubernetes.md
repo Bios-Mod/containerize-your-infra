@@ -96,7 +96,9 @@ kubectl get svc kube-dns -n kube-system -o jsonpath='{.spec.clusterIP}{"\n"}'
 Both ECR repositories are created with Terraform, then both images are built and pushed.
 
 ```bash
-# ECR repositories (web-server and dns) — Terraform, isolated state
+# ECR repositories (web-server and dns) — Terraform, isolated state (outputs.tf is gitignored)
+cp stacks/full-infra/kubernetes/automation/terraform/registry/outputs.tf.example \
+   stacks/full-infra/kubernetes/automation/terraform/registry/outputs.tf
 terraform -chdir=stacks/full-infra/kubernetes/automation/terraform/registry init
 terraform -chdir=stacks/full-infra/kubernetes/automation/terraform/registry apply
 
@@ -113,6 +115,7 @@ docker push $DNS_REPO:v1
 ```
 
 📄 `automation/terraform/registry/ecr.tf` — `aws_ecr_repository` and lifecycle policy for `web-server` and `dns`
+📄 `automation/terraform/registry/outputs.tf.example` — repository URLs and ARNs (copy to `outputs.tf` before running `init`/`apply`)
 📄 `modules/web-server/docker/Dockerfile` — build context reused as-is
 📄 `modules/dns/kubernetes/Dockerfile` — custom BIND9 image on Ubuntu 24.04
 

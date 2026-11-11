@@ -13,7 +13,7 @@ This document covers the Terraform that provisions the AWS layer of the Kubernet
 
 Terraform creates the infrastructure layer only — it does not manage in-cluster Kubernetes objects or container images. Namespaces are created manually with `kubectl` (Step 5), images are built and pushed, and Helm owns the service layer on top of this foundation, following [`full-infra-kubernetes.md`](full-infra-kubernetes.md). It is the same split of responsibility already applied between Terraform and Docker Compose in [`stacks/full-infra/docker/automation.md`](../docker/automation.md).
 
-> **Scope:** the service layer — images, production guardrails, Secrets and the Helm release — is deployed by following [`full-infra-kubernetes.md`](full-infra-kubernetes.md) step by step. Automating that layer is not covered here; it is the subject of a later iteration of the repository, with Ansible.
+> **Scope:** the service layer — images, production guardrails, Secrets and the Helm release — is deployed manually in this repository by following [`full-infra-kubernetes.md`](full-infra-kubernetes.md) step by step; service-layer automation with Ansible lives in the sibling repository [`build-your-infra`](https://github.com/Bios-Mod/build-your-infra).
 
 Every resource in the cluster plan mirrors, one for one, the manual AWS CLI procedure already validated and documented in [`environments/kubernetes/dev/setup.md`](../../../environments/kubernetes/dev/setup.md). This Terraform automates what was already understood by hand — it does not introduce a new design.
 

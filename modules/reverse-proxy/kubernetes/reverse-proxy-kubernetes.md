@@ -257,10 +257,10 @@ helm lint .
 # → 1 chart(s) linted, 0 chart(s) failed
 # → "icon is recommended" is informational
 
-helm template reverse-proxy . -f values.yaml -f values-dev.yaml | grep -A2 "kind: Service$" | grep "type:"
+helm template reverse-proxy . -f values.yaml -f values-dev.yaml | awk '/^kind: Service$/{s=1; next} /^kind:/{s=0} s && /^  type:/{print $1, $2}'
 # → type: LoadBalancer
 
-helm template reverse-proxy . -f values.yaml -f values-prod.yaml | grep -A2 "kind: Service$" | grep "type:"
+helm template reverse-proxy . -f values.yaml -f values-prod.yaml | awk '/^kind: Service$/{s=1; next} /^kind:/{s=0} s && /^  type:/{print $1, $2}'
 # → type: LoadBalancer
 
 helm template reverse-proxy . -f values.yaml -f values-dev.yaml | grep -i "kubernetescrd.namespaces"

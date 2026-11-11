@@ -109,7 +109,7 @@ SUBNET_PRIV_B=$(aws ec2 create-subnet --vpc-id $VPC_ID --cidr-block $SUBNET_PRIV
 
 Two Availability Zones is the minimum needed to demonstrate real high
 availability — one node per AZ, not a simulated single-AZ setup. Public
-subnets host NAT Gateways and any future internet-facing load balancer.
+subnets host NAT Gateways and internet-facing load balancers.
 Private subnets host the worker nodes: this is the "correct for
 production" pattern — workloads never receive a public IP directly, and
 outbound internet access goes through NAT. Placing nodes in public subnets
@@ -441,8 +441,8 @@ aws ec2 describe-security-groups --group-ids $CLUSTER_SG_ID \
 ### What was done
 
 Created the three namespaces that separate this cluster logically: two
-application environments and one system namespace for the future ingress
-controller.
+application environments and one system namespace reserved for shared
+platform ingress infrastructure.
 
 ```bash
 # Namespace for the development-facing logical environment
@@ -451,7 +451,7 @@ kubectl create namespace full-infra-dev
 # Namespace for the production-facing logical environment
 kubectl create namespace full-infra-prod
 
-# Namespace reserved for the future shared ingress controller (Traefik)
+# System namespace reserved for shared ingress infrastructure (unused by the current per-namespace Traefik releases)
 kubectl create namespace ingress-system
 ```
 
@@ -460,10 +460,11 @@ kubectl create namespace ingress-system
 This is the point where "dev" and "prod" stop being infrastructure
 decisions and become Kubernetes-native isolation: a namespace scopes
 Deployments, Services, Secrets, and RBAC without needing a second cluster.
-`ingress-system` is separate from both because the ingress controller
-(Traefik, in a later phase) is shared platform infrastructure, not part of
-either application environment — the same reasoning that kept
-`reverse-proxy` as an independent module in the Docker runtime.
+`ingress-system` separates shared platform ingress infrastructure from
+both application environments — the same reasoning that kept
+`reverse-proxy` as an independent module in the Docker runtime. Today each
+environment namespace (`full-infra-dev` and `full-infra-prod`) runs its
+own Traefik release, so no chart currently deploys into `ingress-system`.
 
 ### Verification
 
