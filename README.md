@@ -69,8 +69,8 @@ infrastructure stack. Kubernetes does not replace the Docker implementation.
 1. Provision the EKS platform with Terraform —
    [`stacks/full-infra/kubernetes/automation.md`](stacks/full-infra/kubernetes/automation.md)
 2. Follow the Kubernetes environment setup guides
-3. Deploy each module chart in order: web-server, reverse-proxy, dns
-4. Deploy the full stack with the umbrella chart —
+3. Deploy each module chart in order: web-server, reverse-proxy, dns, monitoring
+4. Deploy the full stack (including monitoring) with the umbrella chart —
    [`stacks/full-infra/kubernetes/full-infra-kubernetes.md`](stacks/full-infra/kubernetes/full-infra-kubernetes.md)
 
 > **Standalone module deployment:** each Docker module includes a
@@ -132,7 +132,7 @@ Set up the target environment before applying any module:
 | File Transfer | Docker | SFTP (OpenSSH subsystem) | [`modules/file-transfer/`](modules/file-transfer/README.md) |
 | DNS | Docker · Kubernetes | BIND9 | [`modules/dns/`](modules/dns/README.md) |
 | Reverse Proxy | Docker · Kubernetes | Nginx proxy block | [`modules/reverse-proxy/`](modules/reverse-proxy/README.md) |
-| Monitoring | Docker | Prometheus, Grafana, node_exporter, blackbox_exporter | [`modules/monitoring/`](modules/monitoring/README.md) |
+| Monitoring | Docker · Kubernetes | Prometheus, Grafana, node_exporter, blackbox_exporter | [`modules/monitoring/`](modules/monitoring/README.md) |
 | Full Infrastructure Stack | Docker · Kubernetes | All modules combined | [`stacks/full-infra/`](stacks/full-infra/README.md) |
 
 ---
@@ -148,7 +148,7 @@ the other.
 | Docker | Infrastructure | Terraform | VPC, subnet, security group, key pair, EC2 |
 | Docker | Services | Docker Compose | Containers, networks, volumes |
 | Kubernetes | Infrastructure | Terraform | VPC, subnets, NAT, IAM, EKS cluster, managed node group, ECR repositories |
-| Kubernetes | Services | Helm | web-server, reverse-proxy and dns in one umbrella release |
+| Kubernetes | Services | Helm | web-server, reverse-proxy, dns and monitoring in one umbrella release |
 
 **Docker.** A single Terraform configuration defines the host. On first boot,
 `user_data` installs Docker Engine, `qemu-user-static` emulation, and a 1 GiB
@@ -186,8 +186,8 @@ filter, so a change in one module does not run unrelated checks.
 | `file-transfer.yml` | `modules/file-transfer/docker/**` | Compose configuration and image references |
 | `dns.yml` | `modules/dns/docker/**`, `modules/dns/kubernetes/**` | Compose configuration and image references (Docker); custom image build, chart lint and template render (Kubernetes) |
 | `reverse-proxy.yml` | `modules/reverse-proxy/docker/**`, `modules/reverse-proxy/kubernetes/**` | Compose configuration and image references (Docker); chart dependency resolution, lint and template render (Kubernetes) |
-| `monitoring.yml` | `modules/monitoring/docker/**` | Compose configuration, image pulls, `promtool`, `blackbox_exporter`, Grafana dashboard JSON, and inline config consistency checks |
-| `full-infra.yml` | Docker and Kubernetes stack paths, module Docker and Kubernetes paths | Full-stack Compose config/build, monitoring-stack consistency, and Docker/EC2 Terraform (with `.example` files and `user_data.sh` checks); umbrella chart lint and render, EKS and registry Terraform |
+| `monitoring.yml` | `modules/monitoring/docker/**`, `modules/monitoring/kubernetes/**` | Compose configuration, image pulls, `promtool`, `blackbox_exporter`, Grafana dashboard JSON, and inline config consistency checks (Docker); chart lint/render, rendered `promtool`/`blackbox_exporter` checks, Grafana dashboard JSON, and datasource UID consistency (Kubernetes) |
+| `full-infra.yml` | Docker and Kubernetes stack paths, module Docker and Kubernetes paths | Full-stack Compose config/build, monitoring-stack consistency, and Docker/EC2 Terraform (with `.example` files and `user_data.sh` checks); umbrella chart lint/render (including stale-name and monitoring checks), EKS and registry Terraform (with existing `.tf.example` files materialized) |
 | `pull-request.yml` | Changed Docker, Helm and Terraform paths | Path-scoped module, monitoring consistency, full-stack, and Docker/EKS Terraform validation, both runtimes |
 
 Modules with both runtimes validate them in the same workflow file, as independent
@@ -252,6 +252,10 @@ implementation and design decisions.
 │   │   │   ├── docker-compose.prod.yml
 │   │   │   ├── docker-compose.yml
 │   │   │   └── monitoring-docker.md
+│   │   ├── kubernetes
+│   │   │   ├── helm
+│   │   │   │   └── monitoring
+│   │   │   └── monitoring-kubernetes.md
 │   │   └── README.md
 │   ├── reverse-proxy
 │   │   ├── docker
