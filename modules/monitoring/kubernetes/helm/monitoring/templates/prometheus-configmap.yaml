@@ -1,0 +1,107 @@
+# Deploy to:   EKS (full-infra-dev / full-infra-prod)
+# Apply:       helm install / helm upgrade
+# Module:      monitoring
+# Requires:    values.yaml
+#
+# Prometheus scrape configuration ConfigMap — self-monitoring, kubelet cAdvisor
+# node/container telemetry, namespace-scoped Traefik Pod discovery, and blackbox probes.
+# Parameters modified from baseline: global scrape_interval/evaluation_interval from
+# values; kubelet-cadvisor node SD; traefik pod SD; blackbox-http and blackbox-dns jobs
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-prometheus
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: {{ .Values.prometheus.scrapeInterval }}
+      evaluation_interval: {{ .Values.prometheus.scrapeInterval }}
+
+    scrape_configs:
+      - job_name: prometheus
+        static_configs:
+          - targets: ["localhost:9090"]
+            labels:
+              host: lab-eks
+
+      - job_name: kubelet-cadvisor
+        # Kubelet serves embedded cAdvisor telemetry on InternalIP:10250 over HTTPS.
+        kubernetes_sd_configs:
+          - role: node
+        scheme: https
+        metrics_path: /metrics/cadvisor
+        tls_config:
+          # Kubelet serving certificates are self-signed in this lab cluster.
+          insecure_skip_verify: true
+        authorization:
+          credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_node_name]
+            target_label: node
+
+      - job_name: traefik
+        # Traefik Service exposes only ports 80/443, while its chart annotates Pods for :9100/metrics.
+        # Restrict discovery to this release namespace to isolate dev and prod environments.
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - {{ .Release.Namespace }}
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_pod_namespace]
+            action: replace
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: pod
+
+      - job_name: blackbox-http
+        metrics_path: /probe
+        params:
+          module: [http_2xx_insecure]
+        static_configs:
+          - targets:
+              - "https://{{ .Values.probes.traefikService }}:{{ .Values.probes.traefikPort }}"
+            labels:
+              host: lab-eks
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_target
+          - source_labels: [__param_target]
+            target_label: instance
+          - target_label: __address__
+            replacement: {{ .Release.Name }}-blackbox:{{ .Values.blackbox.service.port }}
+
+      - job_name: blackbox-dns
+        metrics_path: /probe
+        params:
+          module: [dns_lab_soa]
+        static_configs:
+          - targets:
+              - "{{ .Values.probes.dnsService }}:{{ .Values.probes.dnsPort }}"
+            labels:
+              host: lab-eks
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_target
+          - source_labels: [__param_target]
+            target_label: instance
+          - target_label: __address__
+            replacement: {{ .Release.Name }}-blackbox:{{ .Values.blackbox.service.port }}

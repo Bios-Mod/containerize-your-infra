@@ -1,0 +1,29 @@
+# Deploy to:   EKS (full-infra-dev / full-infra-prod)
+# Apply:       helm install / helm upgrade
+# Module:      monitoring
+# Requires:    templates/prometheus-service.yaml
+#
+# Grafana datasource provisioning ConfigMap — registers the namespace-local
+# Prometheus Service as default datasource with immutable UID "prometheus".
+# Parameters modified from baseline: url points to {{ .Release.Name }}-prometheus
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-grafana-datasource
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: monitoring
+data:
+  prometheus.yml: |
+    apiVersion: 1
+
+    datasources:
+      - name: Prometheus
+        uid: prometheus
+        type: prometheus
+        access: proxy
+        url: http://{{ .Release.Name }}-prometheus:{{ .Values.prometheus.service.port }}
+        isDefault: true
+        editable: false

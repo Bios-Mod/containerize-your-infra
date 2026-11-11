@@ -1,0 +1,81 @@
+# Deploy to:   EKS (full-infra-dev / full-infra-prod)
+# Apply:       helm install / helm upgrade
+# Module:      monitoring
+# Requires:    Chart.yaml, values.yaml, templates/blackbox-configmap.yaml
+#
+# Deployment for blackbox_exporter. Runs stateless with read-only root filesystem,
+# non-root UID 65534, dropped capabilities, and no ServiceAccount token mounted.
+# Parameters modified from baseline: none
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-blackbox
+  labels:
+    app.kubernetes.io/name: blackbox
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: monitoring
+spec:
+  replicas: {{ .Values.blackbox.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: blackbox
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: blackbox
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/part-of: monitoring
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/blackbox-configmap.yaml") . | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: blackbox
+          image: "{{ .Values.blackbox.image.repository }}:{{ .Values.blackbox.image.tag }}"
+          imagePullPolicy: {{ .Values.blackbox.image.pullPolicy }}
+          args:
+            - --config.file=/config/blackbox.yml
+          ports:
+            - name: http
+              containerPort: 9115
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          readinessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9115
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9115
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.blackbox.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-blackbox

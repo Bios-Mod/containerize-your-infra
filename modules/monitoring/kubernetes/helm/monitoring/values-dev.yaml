@@ -1,0 +1,35 @@
+# Deploy to:   EKS, namespace full-infra-dev
+# Apply:       helm install / helm upgrade -f values.yaml -f values-dev.yaml
+# Module:      monitoring
+# Requires:    values.yaml (baseline)
+#
+# Dev-only overrides. Scales Prometheus and Grafana resources down for lightweight
+# validation on the shared dev namespace and states blackbox resources explicitly.
+# Parameters modified from baseline: prometheus.resources, blackbox.resources, grafana.resources
+
+prometheus:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+blackbox:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      cpu: 50m
+      memory: 48Mi
+
+grafana:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 192Mi
+    limits:
+      cpu: 150m
+      memory: 512Mi

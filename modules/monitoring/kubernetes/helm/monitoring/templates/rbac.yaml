@@ -1,0 +1,90 @@
+# Deploy to:   EKS (full-infra-dev / full-infra-prod)
+# Apply:       helm install / helm upgrade
+# Module:      monitoring
+# Requires:    templates/serviceaccount.yaml
+#
+# Least-privilege RBAC for Prometheus across two scopes: a namespaced Role for
+# Pod/Service/Endpoint discovery in the release namespace, and a cluster-scoped
+# ClusterRole for node discovery and direct kubelet /metrics/cadvisor scrapes.
+# Parameters modified from baseline: none
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-prometheus
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: monitoring
+rules:
+  # Minimum read-only verbs scoped to this release namespace (no cluster-wide Pod/Secret access).
+  - apiGroups: [""]
+    resources:
+      - pods
+      - services
+      - endpoints
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-prometheus
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: monitoring
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-prometheus
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Release.Name }}-prometheus
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  # Include Release.Namespace in ClusterRole/Binding names so dev and prod releases
+  # coexist on the same EKS cluster without Helm resource-ownership collisions.
+  name: {{ .Release.Name }}-{{ .Release.Namespace }}-prometheus-kubelet
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: monitoring
+rules:
+  # Required by kubernetes_sd_configs (role: node) to discover worker node InternalIPs.
+  - apiGroups: [""]
+    resources:
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
+  # Direct kubelet :10250/metrics/cadvisor auth checks nodes/metrics (not nodes/proxy).
+  - apiGroups: [""]
+    resources:
+      - nodes/metrics
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  # Matches the ClusterRole naming pattern to keep dev and prod bindings distinct.
+  name: {{ .Release.Name }}-{{ .Release.Namespace }}-prometheus-kubelet
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: monitoring
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-prometheus
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-{{ .Release.Namespace }}-prometheus-kubelet

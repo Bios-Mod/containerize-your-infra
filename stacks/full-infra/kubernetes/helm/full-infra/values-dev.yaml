@@ -3,10 +3,10 @@
 # Module:      stacks/full-infra/kubernetes
 # Requires:    values.yaml (baseline)
 #
-# Dev-only overrides for the three modules. Reproduces, under each subchart
+# Dev-only overrides for the four modules. Reproduces, under each subchart
 # key, the deltas of modules/*/kubernetes/helm/*/values-dev.yaml.
 # Parameters modified from baseline: web-server image tag and resources,
-# dns resources, Traefik watched namespace and IngressClass
+# dns resources, Traefik watched namespace and IngressClass, monitoring resources
 
 web-server:
   image:
@@ -35,3 +35,29 @@ dns:
     limits:
       cpu: 100m
       memory: 96Mi
+
+monitoring:
+  prometheus:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+  blackbox:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 16Mi
+      limits:
+        cpu: 50m
+        memory: 48Mi
+  grafana:
+    resources:
+      requests:
+        cpu: 25m
+        memory: 192Mi
+      limits:
+        cpu: 150m
+        memory: 512Mi

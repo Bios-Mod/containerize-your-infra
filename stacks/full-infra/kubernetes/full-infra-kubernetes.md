@@ -1,29 +1,29 @@
 # Full Infrastructure Stack — Kubernetes
 
-**Amazon EKS · Helm umbrella chart · web-server · reverse-proxy · dns · containerize-your-infra**
+**Amazon EKS · Helm umbrella chart · web-server · reverse-proxy · dns · monitoring · containerize-your-infra**
 
 ---
 
 ## Introduction
 
-This document covers the deployment of the three Kubernetes modules — web-server, reverse-proxy and dns — as a single unit through the `full-infra` umbrella chart, in both `full-infra-dev` and `full-infra-prod`. Each module was already implemented and verified on its own (`modules/*/kubernetes/*-kubernetes.md`); this stack is the integration layer that connects them, as `stacks/full-infra/docker/full-infra-docker.md` does for Compose.
+This document covers the deployment of the four Kubernetes modules — web-server, reverse-proxy, dns and monitoring — as a single unit through the `full-infra` umbrella chart, in both `full-infra-dev` and `full-infra-prod`. Each module was already implemented and verified on its own (`modules/*/kubernetes/*-kubernetes.md`); this stack is the integration layer that connects them, as `stacks/full-infra/docker/full-infra-docker.md` does for Compose.
 
-The Docker implementation is the functional baseline: Traefik as the single entry point, web-server as the backend and BIND9 as the resolver. Kubernetes reproduces the same topology. `file-transfer` is not part of this stack — it is not migrated to Kubernetes.
+The Docker implementation is the functional baseline: Traefik as the single entry point, web-server as the backend, BIND9 as the resolver, and Prometheus, `blackbox_exporter` and Grafana as the observability layer. Kubernetes reproduces the same topology. `file-transfer` is not part of this stack — it is not migrated to Kubernetes.
 
 | Parameter | Value |
 |---|---|
 | Umbrella chart | `stacks/full-infra/kubernetes/helm/full-infra/` |
-| Dependencies | `web-server`, `reverse-proxy` (which carries `traefik/traefik 41.5.0`) and `dns`, all `file://` |
+| Dependencies | `web-server`, `reverse-proxy` (which carries `traefik/traefik 41.5.0`), `dns` and `monitoring`, all `file://` |
 | Release name | `full-infra` in both namespaces |
 | Namespaces | `full-infra-dev`, `full-infra-prod` |
-| Images | `containerize-your-infra/web-server` (`v1`, `dev`, `prod`), `containerize-your-infra/dns` (`v1`, arm64) |
+| Images | `containerize-your-infra/web-server` (`v1`, `dev`, `prod`), `containerize-your-infra/dns` (`v1`, arm64), upstream `prom/prometheus:v3.16.0`, `prom/blackbox-exporter:v0.29.1`, `grafana/grafana:13.3.0` |
 | Exposure | Traefik `ClusterIP` in dev (`kubectl port-forward`), `LoadBalancer` (Classic ELB) in prod |
-| Hostname | `web.local` through the Host header — no Route53, no custom domain |
+| Hostname | `web.local` (`web-server`) and `grafana.local` (Grafana) through the Host header — no Route53, no custom domain |
 | Environment delta | Helm values only: replicas, resources, image tags, Service type, watched namespace |
 
-> **The release name differs from the module docs.** Each module doc installed its chart with release name = module name. Under the umbrella there is a single release, `full-infra`, so the resource names derived from `.Release.Name` change: the web-server Service is `full-infra-web-server` and the dns Service is `full-infra-dns`. The two cross-module references are reconciled in the umbrella values (Step 4), without modifying the module charts.
+> **The release name differs from the module docs.** Each module doc installed its chart with release name = module name. Under the umbrella there is a single release, `full-infra`, so the resource names derived from `.Release.Name` change: the web-server Service is `full-infra-web-server`, the dns Service is `full-infra-dns`, and the Traefik Service is `full-infra-traefik`. Cross-module references are reconciled in the umbrella values (Step 4), without modifying the module charts.
 
-> **Prerequisites:** the three modules implemented and verified individually. AWS CLI configured with permissions for EKS and ECR, `kubectl`, `helm`, Docker, `openssl`, `htpasswd` (`apache2-utils`) and `jq`.
+> **Prerequisites:** the four modules implemented and verified individually. AWS CLI configured with permissions for EKS and ECR, `kubectl`, `helm`, Docker, `openssl`, `htpasswd` (`apache2-utils`) and `jq`.
 
 ---
 
@@ -37,11 +37,14 @@ Everything else this stack needs lives in the registry or inside the cluster and
 |---|---|---|
 | ECR repositories and container images | 2 | Registry, separate Terraform state for web-server |
 | `ResourceQuota` and `LimitRange` (prod) | 3 | Namespace-scoped, lost with the cluster |
-| TLS and dashboard-auth Secrets | 3 | Namespace-scoped, lost with the cluster |
+| TLS, dashboard-auth and Grafana admin Secrets | 3 | Namespace-scoped, lost with the cluster |
 
 Set the session variables once. Every later step reuses them; if you open a new shell, run this block again.
 
 ```bash
+export AWS_PROFILE=multi-lab-admin
+export AWS_REGION=eu-west-1
+
 REGION=eu-west-1
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text) || return 1
 REGISTRY=$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
@@ -148,7 +151,7 @@ docker image inspect $DNS_REPO:v1 --format '{{.Architecture}}'
 
 ### What was done
 
-Production guardrails and the two Secrets Traefik needs are created before the chart is installed.
+Production guardrails and the Secrets Traefik and Grafana need are created before the chart is installed.
 
 ```bash
 # Production guardrails (see environments/kubernetes/prod/setup.md)
@@ -174,6 +177,15 @@ done
 unset HASH
 ```
 
+> **Changing `monitoring-grafana-admin` later:** Grafana sets the `admin` password only when creating its database; after updating the Secret later, run `kubectl rollout restart deploy/full-infra-grafana -n <ns>` and open a new `port-forward` (the previous one stays attached to the old Pod).
+
+```bash
+# Grafana admin password (distinct random password per namespace)
+for NS in full-infra-dev full-infra-prod; do
+  kubectl create secret generic monitoring-grafana-admin --from-literal=admin-password="$(openssl rand -base64 18)" -n $NS
+done
+```
+
 📄 `environments/kubernetes/prod/resource-quota.yaml` — namespace aggregate cap
 📄 `environments/kubernetes/prod/limit-range.yaml` — per-container defaults and maximum
 
@@ -181,9 +193,9 @@ unset HASH
 
 ### Why
 
-These objects are cluster state, not chart content, and must exist before `helm install`. A missing Secret does not fail at install: Traefik reads TLS material from a `kubernetes.io/tls` Secret and the Middleware references the auth Secret by name, so the failure shows up at request time. The Secret key must be named `users`, which is what Traefik's CRD provider reads. Neither Secret name depends on the release name, so both are unchanged under the umbrella.
+These objects are cluster state, not chart content, and must exist before `helm install`. A missing Secret does not fail at install: Traefik reads TLS material from a `kubernetes.io/tls` Secret, the Middleware references the auth Secret by name, and Grafana mounts `monitoring-grafana-admin` (`admin-password`), so failures show up at request or Pod-startup time. Traefik requires the BasicAuth key to be named `users`. None of the three Secret names depends on the release name, so all stay unchanged under the umbrella.
 
-The quota and the LimitRange are applied first so that the production deployment is tested under the real constraints. The LimitRange caps every container at 500m CPU and 512Mi memory; the quota caps the namespace at 1500m CPU, 3Gi memory (requests) and 20 Pods. Containers with no `resources` block — Traefik's, by default — receive the LimitRange defaults (requests 100m / 128Mi, limits 250m / 256Mi). Prod then requests 500m CPU and 576Mi memory in total, with limits of 1450m and 1152Mi, well inside the quota.
+The quota and the LimitRange are applied first so that the production deployment is tested under the real constraints. The LimitRange caps every container at 500m CPU and 512Mi memory; the quota caps the namespace at 1500m CPU, 3Gi memory (requests), 3000m CPU, 6Gi memory (limits) and 20 Pods. Containers with no `resources` block — Traefik's, by default — receive the LimitRange defaults (requests 100m / 128Mi, limits 250m / 256Mi). Adding monitoring (`160m` CPU / `400Mi` memory requests, `550m` / `944Mi` limits across 3 Pods) to `web-server`, `dns` and Traefik (`500m` / `576Mi` requests, `1450m` / `1152Mi` limits across 5 Pods) brings `full-infra-prod` to `660m` CPU / `976Mi` memory requests and `2000m` CPU / `2096Mi` memory limits across 8 Pods, inside the quota.
 
 The self-signed certificate is a lab-appropriate pattern, not a production one: production would use cert-manager against a real CA. It is issued for `web.local` because routing is by Host header, so it never has to be reissued when the ELB name changes.
 
@@ -199,9 +211,11 @@ kubectl describe limitrange full-infra-prod-limits -n full-infra-prod
 for NS in full-infra-dev full-infra-prod; do
   kubectl get secret reverse-proxy-tls -n $NS -o jsonpath='{.type}{"\n"}'
   kubectl get secret reverse-proxy-dashboard-auth -n $NS -o jsonpath='{.data.users}' | base64 -d | cut -d: -f1
+  kubectl get secret monitoring-grafana-admin -n $NS -o jsonpath='{.data.admin-password}' | wc -c
 done
 # → kubernetes.io/tls
 # → admin
+# → <positive byte count>
 # (repeated for the second namespace)
 ```
 
@@ -211,7 +225,7 @@ done
 
 ### What was done
 
-The umbrella chart composes the three module charts and overrides, from a single place, what changes when they run as one release. Resolve the dependencies bottom-up: first the Traefik dependency of `reverse-proxy`, then the umbrella.
+The umbrella chart composes the four module charts and overrides, from a single place, what changes when they run as one release. Resolve the dependencies bottom-up: first the Traefik dependency of `reverse-proxy`, then the umbrella.
 
 ```bash
 helm repo add traefik https://traefik.github.io/charts
@@ -231,10 +245,10 @@ for ENV in dev prod; do
 done
 ```
 
-📄 `helm/full-infra/Chart.yaml` — three `file://` dependencies
-📄 `helm/full-infra/values.yaml` — cross-module Service names
-📄 `helm/full-infra/values-dev.yaml` — dev deltas for the three modules
-📄 `helm/full-infra/values-prod.yaml` — prod deltas for the three modules
+📄 `helm/full-infra/Chart.yaml` — four `file://` dependencies
+📄 `helm/full-infra/values.yaml` — cross-module Service names and `monitoring.enabled`
+📄 `helm/full-infra/values-dev.yaml` — dev deltas for the four modules
+📄 `helm/full-infra/values-prod.yaml` — prod deltas for the four modules
 
 > `charts/` is build output, not source. Add `stacks/full-infra/kubernetes/helm/full-infra/charts/` and `modules/reverse-proxy/kubernetes/helm/reverse-proxy/charts/` to `.gitignore`.
 
@@ -243,22 +257,24 @@ done
 An umbrella chart has no templates of its own: it composes subcharts and overrides their values from one place. `file://` dependencies keep each module chart as the single source of truth.
 
 - **Build order.** `helm dependency build` on the umbrella packages `reverse-proxy` as it is on disk and does not resolve its own dependencies. Building `reverse-proxy` first puts Traefik inside it; skipping that renders an umbrella without Traefik.
-- **Values scope.** A subchart reads only the values nested under its own name. The module `values-dev.yaml` and `values-prod.yaml` files are not loaded by the umbrella, so their deltas are reproduced under `web-server:`, `reverse-proxy:` and `dns:` in the umbrella environment files. Helm merges maps deeply, so unrepeated module defaults are preserved.
-- **Names.** Modules name resources `<release>-<chart>`, so under release `full-infra` the web-server Service is `full-infra-web-server` and the dns Service `full-infra-dns`. Three values referenced the old names and are overridden in `values.yaml`:
+- **Values scope.** A subchart reads only the values nested under its own name. The module `values-dev.yaml` and `values-prod.yaml` files are not loaded by the umbrella, so their deltas are reproduced under `web-server:`, `reverse-proxy:`, `dns:` and `monitoring:` in the umbrella environment files. Helm merges maps deeply, so unrepeated module defaults are preserved.
+- **Names.** Modules name resources `<release>-<chart>`, so under release `full-infra` the Services become `full-infra-web-server`, `full-infra-dns` and `full-infra-traefik`. Five values referenced the old names and are overridden in `values.yaml`:
 
 | Value | Module default | Umbrella value |
 |---|---|---|
 | `reverse-proxy.reverseProxy.backendServiceName` | `web-server-web-server` | `full-infra-web-server` |
 | `dns.zone.hosts.web` | `web-server-web-server` | `full-infra-web-server` |
 | `dns.zone.hosts.dns` | `dns-dns` | `full-infra-dns` |
+| `monitoring.probes.traefikService` | `reverse-proxy-traefik` | `full-infra-traefik` |
+| `monitoring.probes.dnsService` | `dns-dns` | `full-infra-dns` |
 
-A wrong name does not fail at install: Traefik drops the router (`404`) and the CNAMEs resolve to NXDOMAIN only at query time. Image repositories are not stored in the values because they depend on the AWS account; they are passed with `--set`.
+A wrong name does not fail at install: Traefik drops the router (`404`), DNS CNAMEs resolve to NXDOMAIN, and blackbox probes return `0` at runtime. Image repositories are not stored in the values because they depend on the AWS account; they are passed with `--set`.
 
 ### Verification
 
 ```bash
 helm dependency list
-# → web-server, reverse-proxy, dns — STATUS ok
+# → web-server, reverse-proxy, dns, monitoring — STATUS ok
 
 tar -tzf charts/reverse-proxy-0.1.0.tgz | grep -m1 'charts/traefik/Chart.yaml'
 # → reverse-proxy/charts/traefik/Chart.yaml
@@ -274,7 +290,7 @@ helm template full-infra . -n full-infra-dev -f values.yaml -f values-dev.yaml \
 helm template full-infra . -n full-infra-prod -f values.yaml -f values-prod.yaml \
   --set web-server.image.repository=$WS_REPO --set dns.image.repository=$DNS_REPO > /tmp/full-infra-prod.yaml
 
-grep -c 'web-server-web-server\|dns-dns' /tmp/full-infra-dev.yaml
+grep -c 'web-server-web-server\|dns-dns\|reverse-proxy-traefik' /tmp/full-infra-dev.yaml
 # → 0   (no reference to the old names)
 
 grep -E 'name: full-infra-(web-server|dns)$' /tmp/full-infra-dev.yaml | sort | uniq -c
@@ -285,7 +301,7 @@ grep -E 'CNAME' /tmp/full-infra-prod.yaml
 # → web IN CNAME full-infra-web-server.full-infra-prod.svc.cluster.local.
 
 grep -c '^kind: Deployment' /tmp/full-infra-dev.yaml
-# → 3   (web-server, dns, traefik)
+# → 6   (web-server, dns, traefik, prometheus, blackbox, grafana)
 
 grep -n -B6 'type: LoadBalancer' /tmp/full-infra-dev.yaml
 # → type: LoadBalancer
@@ -304,10 +320,10 @@ done
 # →  type: LoadBalancer
 
 grep -E 'replicas:' /tmp/full-infra-prod.yaml
-# → replicas: 2 (web-server), replicas: 2 (dns), replicas: 1 (traefik)
+# → replicas: 2 (web-server), replicas: 2 (dns), replicas: 1 (traefik, prometheus, blackbox, grafana)
 
 grep -E 'image: ' /tmp/full-infra-dev.yaml
-# → $WS_REPO:dev, $DNS_REPO:v1, docker.io/traefik:v3.7.13
+# → $WS_REPO:dev, $DNS_REPO:v1, docker.io/traefik:v3.7.13, prom/prometheus:v3.16.0, prom/blackbox-exporter:v0.29.1, grafana/grafana:13.3.0
 ```
 
 ---
@@ -316,14 +332,14 @@ grep -E 'image: ' /tmp/full-infra-dev.yaml
 
 ### What was done
 
-A single release installs the three modules in `full-infra-dev`, and the stack is validated from the outside in: Traefik routing, the dashboard, then DNS from a client Pod.
+A single release installs the four modules in `full-infra-dev`, and the stack is validated from the outside in: Traefik routing, the dashboard, DNS from a client Pod, then Prometheus, Grafana and a blackbox fault-injection check.
 
 ```bash
 helm install full-infra . -n full-infra-dev \
   -f values.yaml -f values-dev.yaml \
   --set web-server.image.repository=$WS_REPO --set dns.image.repository=$DNS_REPO
 
-kubectl rollout status deploy/full-infra-web-server deploy/full-infra-dns -n full-infra-dev
+kubectl rollout status deploy/full-infra-web-server deploy/full-infra-dns deploy/full-infra-prometheus deploy/full-infra-blackbox deploy/full-infra-grafana -n full-infra-dev
 kubectl get pods -n full-infra-dev
 
 # Traefik through port-forward (kept open until the end of the verification)
@@ -337,17 +353,17 @@ kubectl wait -n full-infra-dev --for=condition=Ready pod/dns-client --timeout=60
 
 ### Why
 
-One release means one revision history for the whole stack: `helm rollback full-infra` reverts web-server, reverse-proxy and dns together. The trade-off is that a single failing subchart fails the whole install. Helm installs the CRDs of the nested Traefik chart first, so the IngressRoute and Middleware objects in the same release apply cleanly.
+One release means one revision history for the whole stack: `helm rollback full-infra` reverts web-server, reverse-proxy, dns and monitoring together. The trade-off is that a single failing subchart fails the whole install. Helm installs the CRDs of the nested Traefik chart first, so the IngressRoute and Middleware objects in the same release apply cleanly.
 
-`ClusterIP` in dev keeps validation free of AWS cost, and `port-forward` reaches Traefik from the workstation. Routing is by `Host: web.local`, not by address. The Traefik Service is selected by label because its generated name is not part of this stack's contract.
+`ClusterIP` in dev keeps validation free of AWS cost, and `port-forward` reaches Traefik, Prometheus and Grafana from the workstation. Routing is by Host header (`web.local`, `grafana.local`), not by address. The Traefik Service is selected by label because its generated name is not part of this stack's contract.
 
-DNS is tested from a Pod, not with `port-forward`, which only carries TCP and cannot validate UDP, the default DNS transport. Each check isolates one layer: Traefik to web-server (routing), the Middleware (authentication), BIND9 (zone), the `cluster.local` forward (CNAME chase) and egress (forwarders).
+DNS is tested from a Pod, not with `port-forward`, which only carries TCP and cannot validate UDP, the default DNS transport. Each check isolates one layer: Traefik to web-server (routing), the Middleware (authentication), BIND9 (zone), the `cluster.local` forward (CNAME chase), egress (forwarders), and blackbox outage detection (`probe_success == 0`).
 
 ### Verification
 
 ```bash
 kubectl get pods -n full-infra-dev
-# → full-infra-web-server 1/1 Running, full-infra-dns 1/1 Running, traefik 1/1 Running
+# → full-infra-web-server, full-infra-dns, traefik, full-infra-prometheus, full-infra-blackbox, full-infra-grafana 1/1 Running
 
 kubectl get endpoints full-infra-web-server full-infra-dns -n full-infra-dev
 # → web-server 8080, dns 5353 — one Pod IP each
@@ -358,11 +374,14 @@ curl -k -I -H 'Host: web.local' https://localhost:8443/
 curl -k -I -H 'Host: web.local' https://localhost:8443/dashboard/
 # → HTTP/2 401
 
-curl -k -I -u admin -H 'Host: web.local' https://localhost:8443/dashboard/
+curl -k -s -o /dev/null -w "%{http_code}\n" -u admin -H 'Host: web.local' https://localhost:8443/dashboard/
 # → HTTP/2 200 (prompts for the password)
 
 curl -k -I https://localhost:8443/
 # → HTTP/2 404   (no Host header matches no router)
+
+curl -k -I -H 'Host: grafana.local' https://localhost:8443/login
+# → HTTP/2 200
 
 kubectl exec -n full-infra-dev dns-client -- dig @full-infra-dns lab.local SOA +short
 # → full-infra-dns.full-infra-dev.svc.cluster.local. admin.lab.local. 2026093001 3600 1800 604800 86400
@@ -384,6 +403,32 @@ kubectl exec -n full-infra-dev dns-client -- dig @full-infra-dns google.com +sho
 kill %1
 
 kubectl delete pod dns-client -n full-infra-dev
+
+# Monitoring: targets up, probes OK, Grafana health/UI, and DNS probe fault injection
+PW=$(kubectl get secret monitoring-grafana-admin -n full-infra-dev -o jsonpath='{.data.admin-password}' | base64 -d)
+kubectl port-forward -n full-infra-dev svc/full-infra-prometheus 9090:9090 & PROM_PID=$!
+kubectl port-forward -n full-infra-dev svc/full-infra-grafana 3000:3000 & GRAF_PID=$!
+sleep 3
+curl -s http://localhost:9090/api/v1/targets | python3 -c "import sys,json; [print(t['labels']['job'], t['health']) for t in sorted(json.load(sys.stdin)['data']['activeTargets'], key=lambda x: x['labels']['job'])]"
+# → blackbox-dns up, blackbox-http up, kubelet-cadvisor up (x2), prometheus up, traefik up
+
+curl -s 'http://localhost:9090/api/v1/query?query=probe_success' | python3 -c "import sys,json; [print(r['metric']['job'], r['value'][1]) for r in json.load(sys.stdin)['data']['result']]"
+# → blackbox-http 1, blackbox-dns 1
+
+curl -s http://localhost:3000/api/health                                              # → "database": "ok"
+curl -s -u "admin:$PW" http://localhost:3000/api/datasources/uid/prometheus/health    # → "status":"OK"
+# Open http://localhost:3000/d/lab-overview-k8s and confirm panels render data
+
+kubectl scale deploy/full-infra-dns -n full-infra-dev --replicas=0
+sleep 20
+curl -sG 'http://localhost:9090/api/v1/query' \
+  --data-urlencode 'query=probe_success{job="blackbox-dns"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['result'][0]['value'][1])"
+# → 0
+
+kubectl scale deploy/full-infra-dns -n full-infra-dev --replicas=1
+kubectl rollout status deploy/full-infra-dns -n full-infra-dev
+kill $PROM_PID $GRAF_PID && unset PW
 ```
 
 ---
@@ -399,7 +444,7 @@ helm install full-infra . -n full-infra-prod \
   -f values.yaml -f values-prod.yaml \
   --set web-server.image.repository=$WS_REPO --set dns.image.repository=$DNS_REPO
 
-kubectl rollout status deploy/full-infra-web-server deploy/full-infra-dns -n full-infra-prod
+kubectl rollout status deploy/full-infra-web-server deploy/full-infra-dns deploy/full-infra-prometheus deploy/full-infra-blackbox deploy/full-infra-grafana -n full-infra-prod
 
 # Wait for the ELB hostname and for its DNS record to resolve
 until ELB=$(kubectl get svc -n full-infra-prod -l app.kubernetes.io/name=traefik -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}') && [ -n "$ELB" ]; do sleep 10; done
@@ -407,6 +452,7 @@ until ELB_IP=$(dig +short $ELB | head -1) && [ -n "$ELB_IP" ]; do sleep 10; done
 
 curl -k -I --resolve web.local:443:$ELB_IP https://web.local/
 curl -k -I --resolve web.local:443:$ELB_IP -u admin https://web.local/dashboard/
+curl -k -I --resolve grafana.local:443:$ELB_IP https://grafana.local/login
 
 kubectl run dns-client -n full-infra-prod --restart=Never --image=$DNS_REPO:v1 --command -- sleep 3600
 kubectl wait -n full-infra-prod --for=condition=Ready pod/dns-client --timeout=60s
@@ -431,7 +477,7 @@ kubectl apply -f environments/kubernetes/prod/rbac-prod-viewer.yaml
 
 Same chart, same images and same templates: prod differs only in values — replicas, resources, Service type and watched namespace. The ELB is provisioned automatically by the in-tree AWS cloud provider when the Service is `type: LoadBalancer`; no AWS Load Balancer Controller is installed. It is a billable resource that Terraform does not track, which is why the release must be uninstalled before the cluster is destroyed (Teardown).
 
-`--resolve` sends the request to the ELB address while keeping `web.local` as Host and SNI, so the certificate issued for `web.local` is accepted without DNS or a custom domain. The ELB hostname can take a few minutes to resolve after it is created, hence the wait loops.
+`--resolve` sends the request to the ELB address while keeping `web.local` or `grafana.local` as Host and SNI so Traefik routes to each backend without DNS or a custom domain (`-k` skips validation of the self-signed `web.local` certificate). The ELB hostname can take a few minutes to resolve after it is created, hence the wait loops.
 
 RBAC is applied last because the read-only role restricts the namespace by design; applying it earlier would block the Helm operations of this document.
 
@@ -439,16 +485,33 @@ RBAC is applied last because the read-only role restricts the namespace by desig
 
 ```bash
 kubectl get pods -n full-infra-prod -o wide
-# → full-infra-web-server 2/2, full-infra-dns 2/2, traefik 1/1 Running
+# → full-infra-web-server 2/2, full-infra-dns 2/2, traefik 1/1, full-infra-prometheus 1/1, full-infra-blackbox 1/1, full-infra-grafana 1/1 Running
 
 kubectl describe resourcequota full-infra-prod-quota -n full-infra-prod
-# → Used within Hard: requests.cpu <= 1500m, requests.memory <= 3Gi, pods <= 20
+# → Used: 660m/976Mi requests, 2000m/2096Mi limits, 8 pods within Hard
 
 curl -k -I --resolve web.local:443:$ELB_IP https://web.local/
 # → HTTP/2 200
 
 curl -k -I --resolve web.local:443:$ELB_IP -u admin https://web.local/dashboard/
 # → HTTP/2 200
+
+curl -k -I --resolve grafana.local:443:$ELB_IP https://grafana.local/login
+# → HTTP/2 200
+
+# Read the prod-namespace Secret (distinct password from full-infra-dev)
+PW=$(kubectl get secret monitoring-grafana-admin -n full-infra-prod -o jsonpath='{.data.admin-password}' | base64 -d)
+kubectl port-forward -n full-infra-prod svc/full-infra-prometheus 9090:9090 & PROM_PID=$!
+kubectl port-forward -n full-infra-prod svc/full-infra-grafana 3000:3000 & GRAF_PID=$!
+sleep 3
+curl -s http://localhost:9090/api/v1/targets | python3 -c "import sys,json; [print(t['labels']['job'], t['health']) for t in sorted(json.load(sys.stdin)['data']['activeTargets'], key=lambda x: x['labels']['job'])]"
+# → blackbox-dns up, blackbox-http up, kubelet-cadvisor up (x2), prometheus up, traefik up
+curl -s 'http://localhost:9090/api/v1/query?query=probe_success' | python3 -c "import sys,json; [print(r['metric']['job'], r['value'][1]) for r in json.load(sys.stdin)['data']['result']]"
+# → blackbox-http 1, blackbox-dns 1
+curl -s http://localhost:3000/api/health                                              # → "database": "ok"
+curl -s -u "admin:$PW" http://localhost:3000/api/datasources/uid/prometheus/health    # → "status":"OK"
+# Open http://localhost:3000/d/lab-overview-k8s and confirm panels render data
+kill $PROM_PID $GRAF_PID && unset PW
 
 kubectl get endpoints full-infra-web-server full-infra-dns -n full-infra-prod
 # → two Pod IPs each

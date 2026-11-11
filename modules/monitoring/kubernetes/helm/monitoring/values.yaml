@@ -1,0 +1,102 @@
+# Deploy to:   EKS (full-infra-dev / full-infra-prod)
+# Apply:       helm install / helm upgrade
+# Module:      monitoring
+# Requires:    none
+#
+# Baseline values for the monitoring module (defaults sized for prod).
+# values-dev.yaml scales resources down for dev; values-prod.yaml repeats the
+# prod sizing explicitly so environment files remain self-documenting.
+# Parameters modified from baseline: none
+
+prometheus:
+  replicaCount: 1
+
+  image:
+    repository: prom/prometheus
+    tag: v3.16.0
+    pullPolicy: IfNotPresent
+
+  scrapeInterval: 15s
+
+  retention:
+    time: 15d
+    # Prometheus uses base-2 KB/MB/GB suffixes; 800MB leaves ~224Mi headroom inside
+    # the 1Gi emptyDir sizeLimit for WAL segments and compaction overhead.
+    size: 800MB
+
+  storage:
+    # Disk-backed emptyDir cap because this cluster has no EBS CSI driver.
+    sizeLimit: 1Gi
+
+  service:
+    type: ClusterIP
+    port: 9090
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 192Mi
+    limits:
+      cpu: 300m
+      memory: 384Mi
+
+blackbox:
+  replicaCount: 1
+
+  image:
+    repository: prom/blackbox-exporter
+    tag: v0.29.1
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 9115
+
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      cpu: 50m
+      memory: 48Mi
+
+probes:
+  # Standalone module defaults follow the "<module>-<service>" convention; the
+  # full-infra umbrella overrides both to "full-infra-traefik" and "full-infra-dns".
+  traefikService: reverse-proxy-traefik
+  traefikPort: 443
+  hostHeader: web.local
+  dnsService: dns-dns
+  dnsPort: 53
+  zone: lab.local
+
+grafana:
+  replicaCount: 1
+
+  image:
+    repository: grafana/grafana
+    tag: 13.3.0
+    pullPolicy: IfNotPresent
+
+  hostname: grafana.local
+  tlsSecretName: reverse-proxy-tls
+  # Created manually with kubectl in the target namespace (key: admin-password).
+  adminSecretName: monitoring-grafana-admin
+
+  ingressRoute:
+    enabled: true
+
+  service:
+    type: ClusterIP
+    port: 3000
+
+  # Disk-backed emptyDir cap for Grafana SQLite DB and plugin state (no EBS CSI).
+  dataSizeLimit: 256Mi
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+    limits:
+      cpu: 200m
+      memory: 512Mi

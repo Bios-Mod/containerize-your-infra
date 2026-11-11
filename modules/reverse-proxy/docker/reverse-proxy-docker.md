@@ -38,7 +38,7 @@ modules happens in `stacks/full-infra`.
 |------------------|----------------------------------------------------|
 | Image            | `traefik:v3.7`                                     |
 | Entrypoints      | `web` → 80, `websecure` → 443, `dashboard` → 8080 |
-| TLS              | Self-signed cert (dev) — Let's Encrypt ready (prod)|
+| TLS              | Self-signed certificate (generated per host)       |
 | Dashboard        | Enabled — BasicAuth protected                      |
 | Backend          | `nginxinc/nginx-unprivileged:stable-alpine`        |
 | Network          | `proxy-net` — `172.21.0.0/24`                      |

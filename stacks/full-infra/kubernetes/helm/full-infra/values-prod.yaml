@@ -3,10 +3,10 @@
 # Module:      stacks/full-infra/kubernetes
 # Requires:    values.yaml (baseline)
 #
-# Prod-only overrides for the three modules. Reproduces, under each subchart
+# Prod-only overrides for the four modules. Reproduces, under each subchart
 # key, the deltas of modules/*/kubernetes/helm/*/values-prod.yaml.
-# Parameters modified from baseline: replicas, image tag and resources
-# (web-server, dns), Traefik Service type, watched namespace and IngressClass
+# Parameters modified from baseline: replicas and resources (web-server, dns,
+# monitoring), web-server image tag, Traefik Service type/namespace/IngressClass
 #
 # Note: every container stays under the full-infra-prod LimitRange maximum
 # (500m CPU, 512Mi memory) and the aggregate under the ResourceQuota.
@@ -42,3 +42,32 @@ dns:
     limits:
       cpu: 300m
       memory: 192Mi
+
+monitoring:
+  prometheus:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 192Mi
+      limits:
+        cpu: 300m
+        memory: 384Mi
+  blackbox:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 10m
+        memory: 16Mi
+      limits:
+        cpu: 50m
+        memory: 48Mi
+  grafana:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 192Mi
+      limits:
+        cpu: 200m
+        memory: 512Mi
