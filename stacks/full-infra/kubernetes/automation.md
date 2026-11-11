@@ -34,7 +34,7 @@ automation/terraform/
     ├── providers.tf              # provider and version constraints
     ├── ecr.tf                    # web-server and dns repositories, lifecycle policies
     ├── variables.tf              # region, profile, repository names, tag mutability
-    ├── outputs.tf                # repository URLs and ARNs
+    ├── outputs.tf.example        # copy to outputs.tf — repository URLs and ARNs
     └── terraform.tfvars.example  # copy to terraform.tfvars and fill in values
 ```
 
@@ -220,6 +220,7 @@ The ECR repositories for the `web-server` and `dns` images are created from thei
 
 ```bash
 cd ../registry
+cp outputs.tf.example outputs.tf
 cp terraform.tfvars.example terraform.tfvars
 terraform init
 terraform fmt -check
@@ -228,11 +229,11 @@ terraform plan -out registry.tfplan
 terraform apply registry.tfplan
 ```
 
-Edit `terraform.tfvars` before the plan.
+Edit `terraform.tfvars` before the plan (`outputs.tf`, like `cluster/main.tf` and `cluster/outputs.tf`, is gitignored and copied from its `.example` file).
 
 📄 [`automation/terraform/registry/ecr.tf`](automation/terraform/registry/ecr.tf) — `aws_ecr_repository` and lifecycle policy for `web-server` and `dns`
 📄 [`automation/terraform/registry/variables.tf`](automation/terraform/registry/variables.tf) — region, profile, repository names, tag mutability
-📄 [`automation/terraform/registry/outputs.tf`](automation/terraform/registry/outputs.tf) — repository URLs and ARNs
+📄 [`automation/terraform/registry/outputs.tf.example`](automation/terraform/registry/outputs.tf.example) — repository URLs and ARNs (copy to `outputs.tf` before running `init`/`apply`)
 
 ### Why
 

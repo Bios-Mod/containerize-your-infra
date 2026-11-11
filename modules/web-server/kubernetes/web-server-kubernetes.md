@@ -39,7 +39,7 @@ service.
 | TLS         | None — handled by reverse-proxy module (out of scope here)         |
 | Config      | `nginx.conf` and `index.html` baked into image (no ConfigMap)      |
 | Hardening   | `securityContext`: non-root (UID/GID 101), `capabilities.drop: [ALL]`, `readOnlyRootFilesystem: true`, `emptyDir` (`medium: Memory`) for writable paths |
-| Packaging   | Helm chart, no umbrella dependency yet                             |
+| Packaging   | Standalone Helm chart, also packaged as a subchart of `full-infra` ([`full-infra-kubernetes.md`](../../../stacks/full-infra/kubernetes/full-infra-kubernetes.md)) |
 
 ---
 
@@ -227,7 +227,7 @@ helm template modules/web-server/kubernetes/helm/web-server | grep "containerPor
 targetPort 8080, selector matching the Deployment's `app.kubernetes.io/name` and
 `app.kubernetes.io/instance` labels.
 
-> No Ingress and no LoadBalancer in this chart. Only Traefik/Ingress (once migrated in
+> No Ingress and no LoadBalancer in this chart. External HTTP routing and TLS termination are handled by `reverse-proxy` (Traefik), either standalone or via the `full-infra` umbrella chart ([`full-infra-kubernetes.md`](../../../stacks/full-infra/kubernetes/full-infra-kubernetes.md)).
 
 📄 `modules/web-server/kubernetes/helm/web-server/templates/service.yaml`
 

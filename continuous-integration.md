@@ -7,7 +7,10 @@
 ## Introduction
 
 This document covers the CI layer of the repository: automated validation
-triggered on every push and pull request, implemented with GitHub Actions.
+implemented with GitHub Actions. Module workflows and `full-infra.yml` run on
+pushes to `main` when their watched paths change, while `pull-request.yml` runs
+on pull requests targeting `main` — pushing to a working branch does not trigger
+CI until a pull request is opened.
 
 CI does not deploy anything. It validates Docker Compose files, the custom
 Dockerfiles, image references, Helm charts and Terraform syntax for both
@@ -33,27 +36,30 @@ The `dns` Kubernetes job also builds the module's custom image, because the offi
 Kubernetes workflows validate the Helm chart of each module (`web-server`,
 `reverse-proxy`, `dns`, `monitoring`) and the `full-infra` umbrella chart, plus
 the Terraform that provisions EKS and the ECR repositories. Each Helm job runs
-`helm lint` and `helm template` against the chart's baseline, dev, and prod
-values — no cluster access, no AWS credentials, same "no `terraform plan` in CI"
-discipline applied to Helm and to the EKS Terraform.
+`helm lint` and `helm template` against the chart's dev and prod values
+(`web-server.yml` also lints and templates its baseline values, and
+`pull-request.yml` lints `web-server`'s baseline values) — no cluster access, no
+AWS credentials, same "no `terraform plan` in CI" discipline applied to Helm and
+to the EKS Terraform.
 
-Docker and Kubernetes validation live in the same per-module workflow file but
-as independent jobs, each with its own `paths` filter scope within that
-workflow's trigger. A Docker-only change does not run the Helm job and vice
-versa — `paths:` still gates the whole workflow at the event level, but within
-a triggered run, each job validates only its own runtime.
+In per-module workflows (`web-server.yml`, `dns.yml`, `reverse-proxy.yml`,
+`monitoring.yml`), Docker and Kubernetes validation live in the same file as
+independent jobs (`docker-validate` and `helm-validate`). Because `paths:`
+gates the whole workflow at the `push` event level, a push to `main` touching
+either runtime runs both jobs in parallel; per-runtime filtering happens in
+`pull-request.yml` through separate `paths-filter` outputs.
 
 ---
 
 ## Design decisions
 
-**Per-module Docker workflows, not a monolithic pipeline.** Each Docker module
-triggers its own workflow using a runtime-specific `paths` filter. A change to
-`modules/dns/docker/**` runs the DNS Docker workflow; it does not trigger
-file-transfer, reverse-proxy, web-server, or Kubernetes checks. This
-avoids unnecessary compute and keeps CI responsibility scoped to the runtime
-and module that changed, the same way each module is independently deployable
-in this repository.
+**Per-module workflows, not a monolithic pipeline.** Each module triggers its
+own workflow on pushes to `main` using a module-specific `paths` filter. A
+change to `modules/dns/docker/**` runs `dns.yml` (and the stack integration
+workflow `full-infra.yml`); it does not trigger `file-transfer`,
+`reverse-proxy`, `web-server`, or `monitoring`. This avoids unnecessary compute
+and keeps CI responsibility scoped to the module that changed, the same way
+each module is independently deployable in this repository.
 
 **`paths` is an event-level gate, not a job conditional.** GitHub evaluates the
 `paths` filter against the diff of a push or pull request before deciding
@@ -65,8 +71,8 @@ condition inside a job, which runs after the workflow has already started.
 `file-transfer`, `monitoring` (in both runtimes), and the Docker runtimes of
 `dns` and `reverse-proxy`, use published images — there is no Dockerfile in
 those runtimes to build. `file-transfer`, `dns`, and `reverse-proxy` run
-`docker compose config` for syntax and variable resolution, and
-`docker compose pull` to confirm that image references are valid. Using a
+`docker compose config` for syntax and variable resolution, and push workflows
+also run `docker compose pull` to confirm that image references are valid. Using a
 placeholder `GRAFANA_ADMIN_PASSWORD` environment variable, `monitoring`
 (`docker-validate`) adds:
 
@@ -226,14 +232,15 @@ as a preventive default that manages a secret without a demonstrated need.
 └── pull-request.yml     # Detects affected Docker, Helm and Terraform paths and publishes a PR summary
 ```
 
-Each module workflow triggers on pushes to its corresponding
+Each module workflow triggers on pushes to `main` that touch its
 `modules/<name>/docker/**` path, its module README, or its own workflow file.
 `web-server.yml`, `reverse-proxy.yml`, `dns.yml` and `monitoring.yml`
 additionally trigger on their `modules/<name>/kubernetes/**` path, covering both
 runtimes in one file with two independent jobs.
 
-`full-infra.yml` triggers on the Docker and Kubernetes stack paths, the Docker
-and Kubernetes artefacts of the modules, or changes to its workflow definition.
+`full-infra.yml` triggers on pushes to `main` touching the Docker and
+Kubernetes stack paths, the Docker and Kubernetes artefacts of the modules, or
+changes to its workflow definition.
 
 `pull-request.yml` triggers on pull requests targeting `main`. It detects the
 Docker, Helm and Terraform paths affected by the diff and runs only the
@@ -301,7 +308,7 @@ jobs cover `full-infra`, each behind its own filter:
   with `bash -n` and `shellcheck --severity=warning`, and runs
   `terraform fmt -check`, `terraform init -backend=false`, and
   `terraform validate`.
-- `validate-full-infra-helm` runs when it changes
+- `validate-full-infra-helm` runs when a pull request changes
   `stacks/full-infra/kubernetes/helm/**`, any `modules/**/kubernetes/helm/**`
   path, or the workflow file. It builds the chart dependencies bottom-up, lints
   and renders the umbrella for dev and prod, checks for stale module Service

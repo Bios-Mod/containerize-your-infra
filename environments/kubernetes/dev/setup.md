@@ -418,9 +418,9 @@ control-plane-to-node traffic already in place — this is different from
 Docker Compose, where you write every port mapping explicitly. Writing a
 custom security group here without a concrete requirement would be
 premature: it's the kind of unjustified complexity this project avoids.
-Service-specific ingress rules (HTTP/HTTPS, DNS, SFTP) are deferred to
-their own migration phases, once there's a real Service or Ingress
-resource that needs them.
+Service-specific ingress rules (HTTP/HTTPS, DNS; `file-transfer`/SFTP stays in
+the Docker runtime only) are added alongside the Services or Ingress resources
+that need them.
 
 ### Verification
 

@@ -45,9 +45,9 @@ separated by namespace and Helm values. The `full-infra` umbrella chart
 composes the web-server, reverse-proxy, dns and monitoring charts into one
 release, so the whole stack is installed, upgraded and rolled back together.
 
-Traefik is the single entry point: `ClusterIP` in dev, validated through
-`kubectl port-forward`, and a `LoadBalancer` in prod. DNS stays internal to the
-cluster.
+Traefik is the single entry point (`LoadBalancer` in both namespaces, validated
+in dev through `kubectl port-forward` without depending on ELB DNS). DNS stays
+internal to the cluster (`ClusterIP`).
 
 | Layer | Tool | Scope | Doc |
 |---|---|---|---|
