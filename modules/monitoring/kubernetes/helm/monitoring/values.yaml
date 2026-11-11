@@ -39,3 +39,33 @@ prometheus:
     limits:
       cpu: 300m
       memory: 384Mi
+
+blackbox:
+  replicaCount: 1
+
+  image:
+    repository: prom/blackbox-exporter
+    tag: v0.29.1
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 9115
+
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      cpu: 50m
+      memory: 48Mi
+
+probes:
+  # Standalone module defaults follow the "<module>-<service>" convention; the
+  # full-infra umbrella overrides both to "full-infra-traefik" and "full-infra-dns".
+  traefikService: reverse-proxy-traefik
+  traefikPort: 443
+  hostHeader: web.local
+  dnsService: dns-dns
+  dnsPort: 53
+  zone: lab.local

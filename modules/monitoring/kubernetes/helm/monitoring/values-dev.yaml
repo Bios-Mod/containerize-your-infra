@@ -3,9 +3,9 @@
 # Module:      monitoring
 # Requires:    values.yaml (baseline)
 #
-# Dev-only overrides. Scales Prometheus CPU/memory requests and limits down for
-# lightweight validation on the shared dev namespace.
-# Parameters modified from baseline: prometheus.resources
+# Dev-only overrides. Scales Prometheus resources down for lightweight validation
+# on the shared dev namespace and states blackbox resources explicitly.
+# Parameters modified from baseline: prometheus.resources, blackbox.resources
 
 prometheus:
   resources:
@@ -15,3 +15,12 @@ prometheus:
     limits:
       cpu: 200m
       memory: 256Mi
+
+blackbox:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      cpu: 50m
+      memory: 48Mi

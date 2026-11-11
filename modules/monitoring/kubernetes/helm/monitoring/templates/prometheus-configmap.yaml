@@ -4,9 +4,9 @@
 # Requires:    values.yaml
 #
 # Prometheus scrape configuration ConfigMap — self-monitoring, kubelet cAdvisor
-# node/container telemetry, and namespace-scoped Traefik Pod discovery.
+# node/container telemetry, namespace-scoped Traefik Pod discovery, and blackbox probes.
 # Parameters modified from baseline: global scrape_interval/evaluation_interval from
-# values; kubelet-cadvisor node SD; traefik annotation-based pod SD
+# values; kubelet-cadvisor node SD; traefik pod SD; blackbox-http and blackbox-dns jobs
 
 apiVersion: v1
 kind: ConfigMap
@@ -71,3 +71,37 @@ data:
           - source_labels: [__meta_kubernetes_pod_name]
             action: replace
             target_label: pod
+
+      - job_name: blackbox-http
+        metrics_path: /probe
+        params:
+          module: [http_2xx_insecure]
+        static_configs:
+          - targets:
+              - "https://{{ .Values.probes.traefikService }}:{{ .Values.probes.traefikPort }}"
+            labels:
+              host: lab-eks
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_target
+          - source_labels: [__param_target]
+            target_label: instance
+          - target_label: __address__
+            replacement: {{ .Release.Name }}-blackbox:{{ .Values.blackbox.service.port }}
+
+      - job_name: blackbox-dns
+        metrics_path: /probe
+        params:
+          module: [dns_lab_soa]
+        static_configs:
+          - targets:
+              - "{{ .Values.probes.dnsService }}:{{ .Values.probes.dnsPort }}"
+            labels:
+              host: lab-eks
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_target
+          - source_labels: [__param_target]
+            target_label: instance
+          - target_label: __address__
+            replacement: {{ .Release.Name }}-blackbox:{{ .Values.blackbox.service.port }}

@@ -1,0 +1,44 @@
+# Deploy to:   EKS (full-infra-dev / full-infra-prod)
+# Apply:       helm install / helm upgrade
+# Module:      monitoring
+# Requires:    values.yaml
+#
+# Blackbox exporter probe modules for HTTPS ingress (via Traefik with SNI/Host
+# override) and authoritative BIND9 DNS SOA health in the release namespace.
+# Parameters modified from baseline: probes.hostHeader, probes.zone from values
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-blackbox
+  labels:
+    app.kubernetes.io/name: blackbox
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: monitoring
+data:
+  blackbox.yml: |
+    modules:
+      http_2xx_insecure:
+        prober: http
+        timeout: 5s
+        http:
+          valid_status_codes: [200]
+          headers:
+            Host: {{ .Values.probes.hostHeader | quote }}
+          fail_if_not_ssl: true
+          preferred_ip_protocol: ip4
+          tls_config:
+            # In-cluster TLS certificate is self-signed and issued for Host header, not the Service name.
+            insecure_skip_verify: true
+            server_name: {{ .Values.probes.hostHeader | quote }}
+
+      dns_lab_soa:
+        prober: dns
+        timeout: 5s
+        dns:
+          query_name: {{ .Values.probes.zone | quote }}
+          query_type: SOA
+          transport_protocol: udp
+          preferred_ip_protocol: ip4
+          valid_rcodes:
+            - NOERROR
