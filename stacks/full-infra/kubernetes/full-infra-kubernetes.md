@@ -17,9 +17,9 @@ The Docker implementation is the functional baseline: Traefik as the single entr
 | Release name | `full-infra` in both namespaces |
 | Namespaces | `full-infra-dev`, `full-infra-prod` |
 | Images | `containerize-your-infra/web-server` (`v1`, `dev`, `prod`), `containerize-your-infra/dns` (`v1`, arm64), upstream `prom/prometheus:v3.16.0`, `prom/blackbox-exporter:v0.29.1`, `grafana/grafana:13.3.0` |
-| Exposure | Traefik `ClusterIP` in dev (`kubectl port-forward`), `LoadBalancer` (Classic ELB) in prod |
+| Exposure | Traefik `LoadBalancer` (Classic ELB) in both namespaces — validated via `kubectl port-forward` in dev (avoids ELB DNS wait), ELB DNS in prod |
 | Hostname | `web.local` (`web-server`) and `grafana.local` (Grafana) through the Host header — no Route53, no custom domain |
-| Environment delta | Helm values only: replicas, resources, image tags, Service type, watched namespace |
+| Environment delta | Helm values only: replicas, resources, image tags, watched namespace |
 
 > **The release name differs from the module docs.** Each module doc installed its chart with release name = module name. Under the umbrella there is a single release, `full-infra`, so the resource names derived from `.Release.Name` change: the web-server Service is `full-infra-web-server`, the dns Service is `full-infra-dns`, and the Traefik Service is `full-infra-traefik`. Cross-module references are reconciled in the umbrella values (Step 4), without modifying the module charts.
 
@@ -304,20 +304,18 @@ grep -c '^kind: Deployment' /tmp/full-infra-dev.yaml
 # → 6   (web-server, dns, traefik, prometheus, blackbox, grafana)
 
 grep -n -B6 'type: LoadBalancer' /tmp/full-infra-dev.yaml
-# → type: LoadBalancer
+# → full-infra-traefik renders type: LoadBalancer in dev as well (upstream chart default)
 
 for ENV in dev prod; do
   echo "== $ENV"
   awk '/^kind: Service$/{s=1} s&&/^  type:/{print; s=0}' /tmp/full-infra-$ENV.yaml
 done
 # → == dev
-# →  type: ClusterIP
-# →  type: ClusterIP
-# →  type: ClusterIP
+# →  type: ClusterIP   (x5: dns, blackbox, grafana, prometheus, web-server)
+# →  type: LoadBalancer (full-infra-traefik)
 # → == prod
-# →  type: ClusterIP
-# →  type: ClusterIP
-# →  type: LoadBalancer
+# →  type: ClusterIP   (x5: dns, blackbox, grafana, prometheus, web-server)
+# →  type: LoadBalancer (full-infra-traefik)
 
 grep -E 'replicas:' /tmp/full-infra-prod.yaml
 # → replicas: 2 (web-server), replicas: 2 (dns), replicas: 1 (traefik, prometheus, blackbox, grafana)
@@ -355,7 +353,7 @@ kubectl wait -n full-infra-dev --for=condition=Ready pod/dns-client --timeout=60
 
 One release means one revision history for the whole stack: `helm rollback full-infra` reverts web-server, reverse-proxy, dns and monitoring together. The trade-off is that a single failing subchart fails the whole install. Helm installs the CRDs of the nested Traefik chart first, so the IngressRoute and Middleware objects in the same release apply cleanly.
 
-`ClusterIP` in dev keeps validation free of AWS cost, and `port-forward` reaches Traefik, Prometheus and Grafana from the workstation. Routing is by Host header (`web.local`, `grafana.local`), not by address. The Traefik Service is selected by label because its generated name is not part of this stack's contract.
+Traefik also creates an ELB (`type: LoadBalancer`) in dev; validation uses `port-forward` to Traefik, Prometheus and Grafana from the workstation so dev checks do not depend on ELB DNS propagation. Routing is by Host header (`web.local`, `grafana.local`), not by address. The Traefik Service is selected by label because its generated name is not part of this stack's contract.
 
 DNS is tested from a Pod, not with `port-forward`, which only carries TCP and cannot validate UDP, the default DNS transport. Each check isolates one layer: Traefik to web-server (routing), the Middleware (authentication), BIND9 (zone), the `cluster.local` forward (CNAME chase), egress (forwarders), and blackbox outage detection (`probe_success == 0`).
 
@@ -475,7 +473,7 @@ kubectl apply -f environments/kubernetes/prod/rbac-prod-viewer.yaml
 
 ### Why
 
-Same chart, same images and same templates: prod differs only in values — replicas, resources, Service type and watched namespace. The ELB is provisioned automatically by the in-tree AWS cloud provider when the Service is `type: LoadBalancer`; no AWS Load Balancer Controller is installed. It is a billable resource that Terraform does not track, which is why the release must be uninstalled before the cluster is destroyed (Teardown).
+Same chart, same images and same templates: prod differs only in values — replicas, resources and watched namespace. The ELB is provisioned automatically by the in-tree AWS cloud provider when the Service is `type: LoadBalancer`; no AWS Load Balancer Controller is installed. Both dev and prod Services are `type: LoadBalancer` (billable resources that Terraform does not track), which is why both releases must be uninstalled before the cluster is destroyed (Teardown).
 
 `--resolve` sends the request to the ELB address while keeping `web.local` or `grafana.local` as Host and SNI so Traefik routes to each backend without DNS or a custom domain (`-k` skips validation of the self-signed `web.local` certificate). The ELB hostname can take a few minutes to resolve after it is created, hence the wait loops.
 
@@ -571,7 +569,7 @@ helm history full-infra -n full-infra-dev
 
 ### What was done
 
-The release is removed first, so the Traefik `LoadBalancer` Service releases its ELB; only then are the platform and the registry destroyed.
+Both releases are removed first, so each Traefik `LoadBalancer` Service releases its ELB; only then are the platform and the registry destroyed.
 
 ```bash
 helm uninstall full-infra -n full-infra-dev

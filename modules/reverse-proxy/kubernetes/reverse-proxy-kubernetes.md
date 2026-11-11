@@ -19,9 +19,10 @@ routing, dashboard with BasicAuth), only the discovery mechanism and the deploym
 
 > **What this module is, in Kubernetes terms.** Traefik here is an *Ingress Controller*:
 > an ordinary workload (a Deployment running Traefik pods) that watches custom resources
-> and routes traffic accordingly. It is exposed through a Service (type `ClusterIP` in dev,
-> `LoadBalancer` in prod). The `IngressRoute` and `Middleware` objects are configuration,
-> not workloads. `web-server`, by contrast, is a Deployment plus a `ClusterIP` Service.
+> and routes traffic accordingly. It is exposed through a `LoadBalancer` Service in both
+> environments (in dev, validation uses `kubectl port-forward` to avoid depending on ELB DNS).
+> The `IngressRoute` and `Middleware` objects are configuration, not workloads. `web-server`,
+> by contrast, is a Deployment plus a `ClusterIP` Service.
 
 > **This module depends on `web-server`.** End-to-end routing requires the `web-server`
 > Helm release already running in the target namespace
@@ -51,10 +52,10 @@ routing, dashboard with BasicAuth), only the discovery mechanism and the deploym
 | Service ports        | 80 → `web`, 443 → `websecure`                                         |
 | TLS                  | Self-signed cert, `kubernetes.io/tls` Secret `reverse-proxy-tls` (dev and prod) |
 | Dashboard            | Enabled — BasicAuth Middleware, Secret `reverse-proxy-dashboard-auth` |
-| Service type         | `ClusterIP` (dev, `kubectl port-forward`) / `LoadBalancer` (prod, AWS Classic ELB, auto-provisioned — no AWS Load Balancer Controller) |
+| Service type         | `LoadBalancer` in both namespaces (AWS Classic ELB, auto-provisioned — no AWS Load Balancer Controller; dev validates via `kubectl port-forward`) |
 | Hostname             | `web.local`, matched through the `Host` header — no Route53, no custom domain |
 | Backend              | `web-server` release, Service `web-server-web-server:8080` in the same namespace |
-| Packaging            | Helm chart with one dependency, added to the `full-infra` umbrella only after individual validation |
+| Packaging            | Standalone Helm chart (`traefik/traefik` dependency), also packaged as a subchart of `full-infra` ([`full-infra-kubernetes.md`](../../../stacks/full-infra/kubernetes/full-infra-kubernetes.md)) |
 
 ---
 
@@ -210,12 +211,12 @@ openssl x509 -noout -subject -in /tmp/reverse-proxy-certs/lab.crt
 ### What was done
 
 `values.yaml` holds the baseline shared by both environments: dashboard exposure handled by
-this chart's own IngressRoute, Service type `ClusterIP`, and the `reverseProxy` block (routing
-hostname, Secret names, backend Service). Port settings are deliberately not overridden.
+this chart's own IngressRoute and the `reverseProxy` block (routing hostname, Secret names,
+backend Service). Port settings are deliberately not overridden.
 
-`values-dev.yaml` and `values-prod.yaml` carry the real environment differences: the
-namespace each Traefik instance is allowed to watch, the disabled IngressClass, and — in prod
-only — Service type `LoadBalancer`.
+`values-dev.yaml` and `values-prod.yaml` set the namespace each Traefik instance is allowed
+to watch and disable the cluster-scoped `IngressClass`; Traefik's Service renders as
+`type: LoadBalancer` (the upstream chart default) in both environments.
 
 📄 `modules/reverse-proxy/kubernetes/helm/reverse-proxy/values.yaml`
 📄 `modules/reverse-proxy/kubernetes/helm/reverse-proxy/values-dev.yaml`
@@ -237,11 +238,11 @@ same chart would try to own the same cluster-wide object, and the second install
 with an ownership conflict. This module uses `IngressRoute` CRDs, not `Ingress`, so it does
 not need one.
 
-`ClusterIP` in dev keeps validation free of AWS cost: routing is confirmed through
-`kubectl port-forward` before anything is exposed. `LoadBalancer` in prod is what provisions
-the AWS Classic ELB, automatically, through the in-tree AWS cloud provider — no AWS Load
-Balancer Controller is installed. It is the same relaxed-dev, enforced-prod posture as Docker,
-applied to the exposure layer.
+`LoadBalancer` provisions an AWS Classic ELB automatically through the in-tree AWS cloud
+provider — no AWS Load Balancer Controller is installed. Because both dev and prod deploy
+Traefik as `type: LoadBalancer`, both create an ELB; dev validates through
+`kubectl port-forward` to avoid waiting on ELB DNS propagation, and teardown uninstalls both
+releases before destroying the cluster.
 
 > **The chart schema is strict.** Unknown keys fail `helm lint` (for example, a `tls` key
 > directly under `ports.websecure`). TLS on `websecure` is already enabled by the chart's
@@ -257,7 +258,7 @@ helm lint .
 # → "icon is recommended" is informational
 
 helm template reverse-proxy . -f values.yaml -f values-dev.yaml | grep -A2 "kind: Service$" | grep "type:"
-# → type: ClusterIP
+# → type: LoadBalancer
 
 helm template reverse-proxy . -f values.yaml -f values-prod.yaml | grep -A2 "kind: Service$" | grep "type:"
 # → type: LoadBalancer
@@ -397,9 +398,9 @@ kubectl get svc web-server-web-server -n full-infra-prod
 
 ### What was done
 
-First install in `full-infra-dev`, with the Service kept at `ClusterIP` and access through
-`kubectl port-forward` — no AWS cost. Before installing, the two Secrets and the
-`web-server` release must already exist.
+First install in `full-infra-dev`. Traefik renders as `type: LoadBalancer` (creating an ELB),
+while validation uses `kubectl port-forward` so checks do not depend on ELB DNS resolution.
+Before installing, the two Secrets and the `web-server` release must already exist.
 
 ```bash
 kubectl get secret reverse-proxy-tls reverse-proxy-dashboard-auth -n full-infra-dev
@@ -431,9 +432,10 @@ kubectl port-forward -n full-infra-dev svc/reverse-proxy-traefik 8443:443
 
 ### Why
 
-Validating in dev with `ClusterIP` and a port-forward confirms the whole chain — TLS,
-Middleware, IngressRoute, backend — before creating a `LoadBalancer` Service. It is the same
-"manual before automated, cheap before expensive" posture used for the EKS foundation.
+Validating in dev with a port-forward confirms the whole chain — TLS, Middleware,
+IngressRoute, backend — without waiting on ELB DNS propagation. Because dev also renders as
+`LoadBalancer`, Teardown removes both releases before destroying the cluster so neither ELB
+is left behind.
 
 The port-forward targets the Service, so it binds to one pod at connection time. After a
 `helm upgrade` replaces the pod, restart the port-forward.
@@ -479,8 +481,8 @@ unset PW
 
 ## Production deployment
 
-In production the release is installed with `values-prod.yaml`, switching the Service type to
-`LoadBalancer`. This is the point where a real AWS Classic ELB is provisioned.
+In production the release is installed with `values-prod.yaml` and validated directly
+through its AWS Classic ELB.
 
 ```bash
 cd modules/reverse-proxy/kubernetes/helm/reverse-proxy
@@ -539,7 +541,7 @@ kubectl logs -n full-infra-prod deploy/reverse-proxy-traefik | grep ERR
 ### Teardown
 
 ```bash
-# Step 1 — remove the releases; deleting the prod Service deletes the ELB
+# Step 1 — remove both releases; deleting each Traefik LoadBalancer Service deletes its ELB
 helm uninstall reverse-proxy -n full-infra-dev
 helm uninstall reverse-proxy -n full-infra-prod
 
@@ -549,7 +551,7 @@ REGION=eu-west-1
 
 aws elb describe-load-balancers --region "$REGION" \
   --query 'LoadBalancerDescriptions[*].LoadBalancerName' --output text
-# → must not list the ELB whose name is the prefix of the hostname in $ELB
+# → must not list either ELB (dev or prod)
 
 # Step 3 — only now is it safe to run terraform destroy on the EKS foundation
 ```

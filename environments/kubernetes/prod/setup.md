@@ -43,7 +43,7 @@ kubectl apply -f resource-quota.yaml
 
 ```bash
 kubectl describe resourcequota full-infra-prod-quota -n full-infra-prod
-# → Used column populated once workloads are deployed in later phases
+# → Used column shows zero usage until the full stack is deployed following stacks/full-infra/kubernetes/full-infra-kubernetes.md
 ```
 
 ---

@@ -47,7 +47,7 @@ its behaviour on a different runtime, it does not redesign the service.
 | Config           | ConfigMap `dns-dns` mounted read-only at `/etc/bind`                          |
 | Writable paths   | `emptyDir` (`medium: Memory`) on `/var/cache/bind`, `/var/run/named`, `/tmp`  |
 | Hardening        | non-root (UID/GID 101), `capabilities.drop: [ALL]`, `readOnlyRootFilesystem`  |
-| Packaging        | Helm chart, no umbrella dependency yet                                        |
+| Packaging        | Standalone Helm chart, also packaged as a subchart of `full-infra` ([`full-infra-kubernetes.md`](../../../stacks/full-infra/kubernetes/full-infra-kubernetes.md)) |
 
 ---
 
