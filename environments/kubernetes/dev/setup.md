@@ -363,7 +363,7 @@ aws eks create-nodegroup \
   --node-role $NODE_ROLE_ARN \
   --subnets $SUBNET_PRIV_A $SUBNET_PRIV_B \
   --instance-types t4g.medium \
-  --ami-type AL2_ARM_64 \
+  --ami-type AL2023_ARM_64_STANDARD \
   --scaling-config minSize=2,maxSize=2,desiredSize=2
 
 # Blocks until both nodes have joined the cluster and report status ACTIVE
@@ -381,6 +381,10 @@ workload runs — `t4g.small` risks pods stuck in `Pending` due to
 insufficient allocatable memory. `minSize=maxSize=desiredSize=2` keeps the
 node count fixed and predictable for a lab: no autoscaling behavior to
 reason about yet, and no unplanned cost from unexpected scale-out.
+`AL2023_ARM_64_STANDARD` matches the cluster Kubernetes version (`1.36`):
+Amazon EKS stopped publishing Amazon Linux 2 optimized AMIs on November 26,
+2025, and from Kubernetes 1.33 onward only AL2023 and Bottlerocket AMIs are
+available.
 
 ### Verification
 
