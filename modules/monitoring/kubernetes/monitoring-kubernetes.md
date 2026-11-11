@@ -17,7 +17,9 @@ This document deploys Prometheus (`prom/prometheus:v3.16.0`), `blackbox_exporter
 | Chart / Images | `modules/monitoring/kubernetes/helm/monitoring` · Prometheus `v3.16.0`, blackbox `v0.29.1`, Grafana `13.3.0` |
 | Namespaces / release | `full-infra-dev`, `full-infra-prod` · standalone release `monitoring` |
 | Services | `ClusterIP` `:9090` (Prometheus), `:9115` (blackbox), `:3000` (Grafana; conditional `IngressRoute` `grafana.local`) |
-| Resources (dev / prod) | Prometheus `50m/128Mi`–`200m/256Mi` / `100m/192Mi`–`300m/384Mi` · blackbox `10m/16Mi`–`50m/48Mi` · Grafana `25m/96Mi`–`150m/192Mi` / `50m/128Mi`–`200m/256Mi` |
+| Resources (dev / prod) | Prometheus `50m/128Mi`–`200m/256Mi` / `100m/192Mi`–`300m/384Mi` · blackbox `10m/16Mi`–`50m/48Mi` · Grafana `25m/192Mi`–`150m/512Mi` / `50m/192Mi`–`200m/512Mi` |
+
+> **Grafana memory sizing:** without node swap on EKS, Grafana 13 needs a `512Mi` memory limit (matching the prod `LimitRange` ceiling) to avoid `OOMKilled` on startup.
 
 ## Before You Start
 

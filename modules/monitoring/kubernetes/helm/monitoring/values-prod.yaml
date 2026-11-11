@@ -4,7 +4,7 @@
 # Requires:    values.yaml (baseline)
 #
 # Prod environment values. Explicitly records the prod replicaCount and resource
-# bounds (kept below full-infra-prod LimitRange max 500m/512Mi).
+# bounds (kept within full-infra-prod LimitRange max 500m/512Mi).
 # Parameters modified from baseline: none — explicit prod baseline
 
 prometheus:
@@ -32,7 +32,7 @@ grafana:
   resources:
     requests:
       cpu: 50m
-      memory: 128Mi
+      memory: 192Mi
     limits:
       cpu: 200m
-      memory: 256Mi
+      memory: 512Mi
