@@ -8,5 +8,8 @@ dependencies:
 - name: dns
   repository: file://../../../../../modules/dns/kubernetes/helm/dns
   version: 0.1.0
-digest: sha256:3128a92abb3e2401f8613188e62cbbca7236f3a100c58ff747fccf8c3c308d9a
-generated: "2026-10-02T18:05:15.287916+02:00"
+- name: monitoring
+  repository: file://../../../../../modules/monitoring/kubernetes/helm/monitoring
+  version: 0.1.0
+digest: sha256:224e36673847cc01ef08944212cd7dcc6e251fd65d39a05443c7a223ef6f8624
+generated: "2026-11-11T09:48:42.86609+01:00"
