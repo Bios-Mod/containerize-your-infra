@@ -3,11 +3,14 @@
 # Module:      monitoring
 # Requires:    none
 #
-# Validates the monitoring module Docker runtime: Compose syntax (dev and prod)
-# with a dummy GRAFANA_ADMIN_PASSWORD, image resolution, Prometheus config
-# (promtool), Blackbox Exporter config (--config.check), and Grafana dashboard
-# JSON syntax. No container startup, no external proxy-net required.
-# Parameters modified from baseline: reads promtool/blackbox images from compose; adds inline consistency checks
+# Validates the monitoring module in both runtimes. Docker: Compose syntax
+# (dev and prod) with a dummy GRAFANA_ADMIN_PASSWORD, image resolution,
+# Prometheus config (promtool), Blackbox Exporter config (--config.check),
+# Grafana dashboard JSON, and inline consistency checks. Kubernetes: Helm
+# lint and template rendering for dev and prod, rendered Prometheus/Blackbox
+# checks (--syntax-only / --config.check), Grafana dashboard JSON, and
+# datasource UID consistency. No cluster access — static validation only.
+# Parameters modified from baseline: paths (kubernetes/** added), docker-validate rename, helm-validate job added
 
 name: monitoring
 
@@ -16,11 +19,12 @@ on:
     branches: main
     paths:
       - "modules/monitoring/docker/**"
+      - "modules/monitoring/kubernetes/**"
       - "modules/monitoring/README.md"
       - ".github/workflows/monitoring.yml"
 
 jobs:
-  validate:
+  docker-validate:
     runs-on: ubuntu-24.04-arm
     env:
       GRAFANA_ADMIN_PASSWORD: ci-check
@@ -169,3 +173,111 @@ jobs:
                 ;;
             esac
           done <<< "$bind_sources"
+
+  helm-validate:
+    runs-on: ubuntu-24.04-arm
+    defaults:
+      run:
+        working-directory: modules/monitoring/kubernetes/helm/monitoring/
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+
+      - name: Lint chart (dev values)
+        run: helm lint . -f values.yaml -f values-dev.yaml
+
+      - name: Lint chart (prod values)
+        run: helm lint . -f values.yaml -f values-prod.yaml
+
+      - name: Render templates (dev)
+        run: helm template monitoring . -n full-infra-dev -f values.yaml -f values-dev.yaml > /dev/null
+
+      - name: Render templates (prod)
+        run: helm template monitoring . -n full-infra-prod -f values.yaml -f values-prod.yaml > /tmp/monitoring-prod.yaml
+
+      - name: Verify prod render includes all Deployments
+        run: |
+          deploys="$(yq -o=json '.' < /tmp/monitoring-prod.yaml | jq -sr '[.[] | select(type == "object" and .kind == "Deployment") | .metadata.name] | .[]')"
+          for name in monitoring-prometheus monitoring-blackbox monitoring-grafana; do
+            if ! grep -Fqx "$name" <<< "$deploys"; then
+              echo "::error::Missing Deployment '$name' in prod render" >&2
+              exit 1
+            fi
+          done
+
+      - name: Validate rendered Prometheus configuration
+        run: |
+          yq -o=json '.' < /tmp/monitoring-prod.yaml \
+            | jq -sr '[.[] | select(type == "object" and .kind == "ConfigMap" and .metadata.name == "monitoring-prometheus") | .data["prometheus.yml"]][0] // empty' \
+            > /tmp/prometheus.yml
+          if [ ! -s /tmp/prometheus.yml ]; then
+            echo "::error::Missing prometheus.yml in rendered monitoring-prometheus ConfigMap" >&2
+            exit 1
+          fi
+          PROM_IMAGE="$(yq -o=json '.' < values.yaml | jq -er '"\(.prometheus.image.repository):\(.prometheus.image.tag)"')"
+          docker run --rm --entrypoint promtool \
+            -v /tmp/prometheus.yml:/etc/prometheus/prometheus.yml:ro \
+            "$PROM_IMAGE" \
+            check config --syntax-only /etc/prometheus/prometheus.yml
+
+      - name: Validate rendered Blackbox Exporter configuration
+        run: |
+          yq -o=json '.' < /tmp/monitoring-prod.yaml \
+            | jq -sr '[.[] | select(type == "object" and .kind == "ConfigMap" and .metadata.name == "monitoring-blackbox") | .data["blackbox.yml"]][0] // empty' \
+            > /tmp/blackbox.yml
+          if [ ! -s /tmp/blackbox.yml ]; then
+            echo "::error::Missing blackbox.yml in rendered monitoring-blackbox ConfigMap" >&2
+            exit 1
+          fi
+          BB_IMAGE="$(yq -o=json '.' < values.yaml | jq -er '"\(.blackbox.image.repository):\(.blackbox.image.tag)"')"
+          docker run --rm \
+            -v /tmp/blackbox.yml:/config/blackbox.yml:ro \
+            "$BB_IMAGE" \
+            --config.file=/config/blackbox.yml --config.check
+
+      - name: Validate Grafana dashboard JSON
+        run: python3 -m json.tool dashboards/lab-overview-k8s.json > /dev/null
+
+      - name: Validate Grafana dashboard metadata and datasource
+        run: |
+          dash="dashboards/lab-overview-k8s.json"
+          dash_uid="$(jq -r '.uid // ""' "$dash")"
+          dash_title="$(jq -r '.title // ""' "$dash")"
+          if [ -z "${dash_uid//[[:space:]]/}" ]; then
+            echo "::error::Dashboard $dash has an empty or missing uid" >&2
+            exit 1
+          fi
+          if [ -z "${dash_title//[[:space:]]/}" ]; then
+            echo "::error::Dashboard $dash has an empty or missing title" >&2
+            exit 1
+          fi
+          ds_yaml="$(yq -o=json '.' < /tmp/monitoring-prod.yaml | jq -sr '[.[] | select(type == "object" and .kind == "ConfigMap" and .metadata.name == "monitoring-grafana-datasource") | .data["prometheus.yml"]][0] // empty')"
+          if [ -z "$ds_yaml" ]; then
+            echo "::error::Missing prometheus.yml in rendered monitoring-grafana-datasource ConfigMap" >&2
+            exit 1
+          fi
+          provisioned_uids="$(yq -o=json '.' <<< "$ds_yaml" | jq -r '.datasources[]?.uid // empty')"
+          if ! grep -Fqx "prometheus" <<< "$provisioned_uids"; then
+            echo "::error::Provisioned datasource uid 'prometheus' is missing in monitoring-grafana-datasource ConfigMap" >&2
+            exit 1
+          fi
+          referenced_uids="$(jq -r '
+            [.. | objects | select(has("datasource")) | .datasource | select(type == "object") | .uid? // empty]
+            | unique
+            | .[]
+          ' "$dash")"
+          if [ -z "$referenced_uids" ]; then
+            echo "::error::Dashboard $dash references no datasource UIDs" >&2
+            exit 1
+          fi
+          while IFS= read -r ref_uid; do
+            [ -z "$ref_uid" ] && continue
+            if ! grep -Fqx "$ref_uid" <<< "$provisioned_uids"; then
+              echo "::error::Dashboard $dash references datasource uid '$ref_uid', which is not provisioned in monitoring-grafana-datasource ConfigMap" >&2
+              exit 1
+            fi
+          done <<< "$referenced_uids"
