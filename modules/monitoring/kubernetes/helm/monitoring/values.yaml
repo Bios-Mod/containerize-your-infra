@@ -1,0 +1,41 @@
+# Deploy to:   EKS (full-infra-dev / full-infra-prod)
+# Apply:       helm install / helm upgrade
+# Module:      monitoring
+# Requires:    none
+#
+# Baseline values for the monitoring module (defaults sized for prod).
+# values-dev.yaml scales resources down for dev; values-prod.yaml repeats the
+# prod sizing explicitly so environment files remain self-documenting.
+# Parameters modified from baseline: none
+
+prometheus:
+  replicaCount: 1
+
+  image:
+    repository: prom/prometheus
+    tag: v3.16.0
+    pullPolicy: IfNotPresent
+
+  scrapeInterval: 15s
+
+  retention:
+    time: 15d
+    # Prometheus uses base-2 KB/MB/GB suffixes; 800MB leaves ~224Mi headroom inside
+    # the 1Gi emptyDir sizeLimit for WAL segments and compaction overhead.
+    size: 800MB
+
+  storage:
+    # Disk-backed emptyDir cap because this cluster has no EBS CSI driver.
+    sizeLimit: 1Gi
+
+  service:
+    type: ClusterIP
+    port: 9090
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 192Mi
+    limits:
+      cpu: 300m
+      memory: 384Mi
